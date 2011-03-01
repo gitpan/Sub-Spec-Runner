@@ -1,0 +1,61 @@
+Revision history for Sub::Spec::Runner
+
+0.08     2011-02-28
+
+       [INCOMPATIBLE CHANGES]
+
+         Rename module: Sub::Spec::Runner::Orderly -> Sub::Spec::Runner.
+
+         Update to latest Sub::Spec: 'depends' clause becomes 'dep'. 'sub' dep
+         clause becomes 'run_sub'.
+
+         Check dependencies (using SS::Clause::deps::check()) before add()-ing.
+
+         run() no longer accepts %opts, use the new attributes:
+         stop_on_sub_errors and order_before_run instead.
+
+       [ENHANCEMENTS]
+
+         Add result().
+
+
+0.07     2011-02-25
+
+         Add missing dep [CT].
+
+
+0.06     2011-02-24
+
+         Add get_spec() to allow overriding behaviour for getting sub specs,
+         remove $spec argument to add().
+
+         Add option order_by_dependencies to run() to allow run() to not run
+         order_by_dependencies().
+
+         Some POD fixes.
+
+
+0.05     2011-02-24
+
+         Update doc.
+
+
+0.04     2011-02-24
+
+         Rewrite into OO-style, rename from Sub::Spec::RunDeps ->
+         Sub::Spec::Runner::Orderly.
+
+
+0.03     2011-02-23
+
+         Add missing dep: Log::Any.
+
+
+0.02     2011-02-22
+
+         Add before_item & after_item argument.
+
+
+0.01     2011-02-22
+
+         First release.

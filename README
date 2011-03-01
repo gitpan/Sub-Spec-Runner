@@ -1,0 +1,264 @@
+NAME
+    Sub::Spec::Runner - Run a subroutine
+
+VERSION
+    version 0.08
+
+SYNOPSIS
+    In YourModule.pm:
+
+     package YourModule;
+
+     use 5.010;
+     our %SPEC;
+
+     $SPEC{a} = { deps => {run_sub=>'b'}, ... };
+     sub a { my %args = @_; say "a"; [200, "OK"] }
+
+     $SPEC{b} = { deps => {run_sub=>'c'}, ... };
+     sub b { my %args = @_; say "b"; [200, "OK"] }
+
+     $SPEC{c} = { deps => {all=>[{run_sub=>'d'}, {run_sub=>'e'}]}, ... };
+     sub c { my %args = @_; say "c"; [200, "OK"] }
+
+     $SPEC{d} = { deps => {run_sub=>'e'}, ... };
+     sub d { my %args = @_; say "d"; [200, "OK"] }
+
+     $SPEC{e} = { ... };
+     sub e { my %args = @_; say "e"; [200, "OK"] }
+
+    In main module:
+
+     use Sub::Spec::Runner;
+
+     my $runner = Sub::Spec::Runner->new(load_modules=>0);
+     $runner->add('YourModule::a');
+     $runner->run;
+
+    Will output:
+
+     e
+     d
+     c
+     b
+     a
+
+DESCRIPTION
+    This class "runs" a subroutine. "Running" basically means loading the
+    module and calling the subroutine, plus a few other stuffs. See run()
+    for more details.
+
+    This module uses Log::Any logging framework. Use something like
+    Log::Any::App, etc to see more logging statements for debugging.
+
+    This module uses Moo for object system.
+
+ATTRIBUTES
+  args => HASHREF
+    Arguments to pass to each subroutine. Note that each argument will only
+    be passed if the 'args' clause in subroutine spec specifies that the sub
+    accepts that argument, or if subroutine doesn't have an 'args' clause.
+    Example:
+
+     package Foo;
+
+     our %SPEC;
+     $SPEC{sub0} = {};
+     sub sub0 { ... }
+
+     $SPEC{sub1} = {args=>{}};
+     sub sub1 { ... }
+
+     $SPEC{sub2} = {args=>{foo=>"str"}};
+     sub sub2 { ... }
+
+     $SPEC{sub3} = {args=>{bar=>"str"}};
+     sub sub2 { ... }
+
+     $SPEC{sub4} = {args=>{foo=>"str", bar=>"str"}};
+     sub sub4 { ... }
+
+     package main;
+     use Sub::Spec::Runner;
+
+     my $runner = Sub::Spec::Runner->new(args => {foo=>1, foo=>2});
+     $runner->add("Foo::sub$_") for (1 2 3 4);
+     $runner->run;
+
+    Then only sub0 and sub4 will receive 'foo' and 'bar' args. sub1 won't
+    receive any arguments, sub2 will only receive 'foo', sub3 will only
+    receive 'bar'.
+
+  load_modules => BOOL (default 1)
+    Whether to load (require()) modules when required (in add()). You can
+    turn this off if you are (or want to make) sure that all the subroutines
+    to be run are already loaded.
+
+  stop_on_sub_errors => BOOL (default 1)
+    When run()-ning subroutines, whether a non-success return value from a
+    subroutine stops the whole run. If turned off, run() will continue to
+    the next subroutine. Note that you can override what constitutes a
+    success return value by overriding success_res().
+
+  order_before_run => BOOL (default 1)
+    Before run() runs the subroutines, it will call order_by_dependencies()
+    to reorder the added subroutines according to dependency tree (the
+    'sub_run' dependency clause). You can turn off this behavior by setting
+    this attribute to false.q
+
+METHODS
+  $runner->get_spec($subname) => SPEC
+    Get spec for sub named $subname. Will be called by add(). Can be
+    overriden to provide your own specs other than from %SPECS package
+    variables.
+
+  $runner->add($subname)
+    Add subroutine to the set of subroutines to be run. Example:
+
+     $runner->add('Package::subname');
+
+    Will first get the sub spec by loading the module and read the %SPEC
+    package var (this behavior can be changed by overriding get_spec()).
+    Will not load modules if 'load_modules' attribute is false. Will die if
+    cannot get spec.
+
+    After that, it will check dependencies (the 'deps' spec clause) and die
+    if some dependencies are unmet. All subroutine names mentioned in
+    'run_sub' dependency clause will also be add()-ed automatically.
+
+  $runner->order_by_dependencies()
+    Reorder set of subroutines by dependencies. Normally need not be called
+    manually since it will be caled by run() prior to running subroutines,
+    but if you turn off 'order_before_run' attribute, you'll need to call
+    this method explicitly if you want ordering.
+
+    Will return a true value on success, or false if dependencies cannot be
+    resolved (e.g. there is circular dependency).
+
+  $runner->todo_subs() => ARRAYREF
+    Return the current list of subroutine names not yet runned, in order.
+    Previously run subroutines can belong to this list again if repeat()-ed.
+
+  $runner->done_subs() => ARRAYREF
+    Return the current list of subroutine names already run, in order.
+    Never-run subroutines can belong to this list too if skip()-ed.
+
+  $runner->run() => [STATUSCODE, ERRMSG, RESULT]
+    Run (call) a set of subroutines previously added by add().
+
+    First it will call order_by_dependencies() to reorder the subroutines
+    according to dependency order. This can be turned off via setting
+    'order_before_run' attribute to false.
+
+    After that, it will will call pre_run(), which you can override.
+    pre_run() must return true, or run() will immediately return with 412
+    error.
+
+    Then it will call each subroutine successively. Each subroutine will be
+    called with arguments specified in 'args' attribute, with one extra
+    special argument, '.runner' which is the runner object. Prior to running
+    a subroutine, pre_sub() will be called. It must return true, or run()
+    will immediately return with 500 error.
+
+    Runner will store the return value of each subroutine. Exception from
+    subroutine will be trapped by eval() and upon exception return value of
+    subroutine is assumed to be 500.
+
+    The subroutine being run can see the status/result of other subroutines
+    by calling $runner->done($subname), $runner->result($subname). It can
+    share data by using $runner->stash(). It can also change the ordering or
+    repeat/skip some subroutines by calling $runner->skip(), skip_all(),
+    repeat(), repeat_all(), branch_done(). It can jump to other subroutines
+    using $runner->jump(). See the respective method documentation for more
+    details.
+
+    After running a subroutine, post_sub() will be called. It must return
+    true, or run() will immediately return with 500 error.
+
+    If 'stop_on_sub_errors' attribute is set to true (the default), then if
+    the subroutine returns a non-success result, run() will immediately exit
+    with that result. The meaning of subroutine's success can be changed by
+    overriding success_res() (by default, all 2xx and 3xx are considered
+    success).
+
+    After all subroutines have been run (or skipped), run() will call
+    post_run() which must return true or otherwise run() will immediately
+    exit with 500 status.
+
+    After that, run() will return the summary in RESULT (number of
+    subroutines run, skipped, successful, etc). It will return status 200 if
+    there are at least one subroutine returning success, or 500 otherwise.
+
+  $runner->format_subname($subname) => STR
+    Can be used to format info log message: "Running XXX ..." when about to
+    run a subroutine inside run(). Default is "Running Package::bar ..."
+    (just the subname)
+
+  $runner->success_res($res) => BOOL
+    By default, all responses with 2xx and 3xx are assumed as a success. You
+    can override this.
+
+  $runner->pre_run() => BOOL
+    See run() for more details. Can be overridden by subclass.
+
+  $runner->pre_sub() => BOOL
+    See run() for more details. Can be overridden by subclass.
+
+  $runner->post_sub() => BOOL
+    See run() for more details. Can be overridden by subclass.
+
+  $runner->post_run() => BOOL
+    See run() for more details. Can be overridden by subclass.
+
+  $runner->result(SUBNAME) => RESULT
+    Return the result of run subroutine named SUBNAME. If subroutine is not
+    run yet, will return undef. Will die if subroutine is not in the list of
+    added subroutines.
+
+  $runner->done(SUBNAME[, VALUE]) => OLDVAL
+    If VALUE is set, set a subroutine to be done/not done. Otherwise will
+    return the current done status of SUBNAME. Will die if subroutine named
+    SUBNAME is not in the list of added subs.
+
+    SUBNAME can also be a regex, which means all subroutines matching the
+    regex. The last SUBNAME's current done status will be returned.
+
+  $runner->skip(SUBNAME)
+    Alias for done(SUBNAME, 1).
+
+  $runner->skip_all()
+    Alias for skip(qr/.*/, 1).
+
+  $runner->repeat(SUBNAME)
+    Alias for done(SUBNAME, 0).
+
+  $runner->repeat_all()
+    Alias for repeat(qr/.*/, 1).
+
+  $runner->branch_done(SUBNAME, VALUE)
+    Just like done(), except that will set SUBNAME *and all its dependants*.
+    Example: if a depends on b and b depends on c, then doing branch_done(c,
+    1) will also set a & b as done.
+
+    SUBNAME must be a string and not regex.
+
+  $runner->jump($subname)
+    Jump to another subname. Can be called in pre_sub() or inside subroutine
+    or post_sub().
+
+  $runner->stash(NAME[, VALUE]) => OLDVAL
+    Get/set stash data. This is a generic place to share data between
+    subroutines being run.
+
+SEE ALSO
+    Sub::Spec
+
+AUTHOR
+    Steven Haryanto <stevenharyanto@gmail.com>
+
+COPYRIGHT AND LICENSE
+    This software is copyright (c) 2011 by Steven Haryanto.
+
+    This is free software; you can redistribute it and/or modify it under
+    the same terms as the Perl 5 programming language system itself.
+
