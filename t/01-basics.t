@@ -13,23 +13,23 @@ package Foo;
 use 5.010;
 our %SPEC;
 
-$SPEC{a} = {deps=>{run_sub=>"Foo::b"}, args=>{alt=>"bool"}};
+$SPEC{a} = {deps=>{run_sub=>"Foo::b"}, args=>{alt=>"bool", alt2=>"bool"}};
 sub a {
     my %args=@_;
-    print "A".($args{alt} ? "x" : "");
+    print "A".($args{alt} ? "x" : "").($args{alt2} ? "y" : "");
     [200, "OK", "apple"];
 }
 $SPEC{b} = {deps=>{all=>[{run_sub=>"Foo::c"},{run_sub=>"Foo::d"}]}};
 sub b {
     my %args=@_;
-    print "B".($args{alt} ? "x" : "");
+    print "B".($args{alt} ? "x" : "").($args{alt2} ? "y" : "");
     [200, "OK", "banana"];
 }
 $SPEC{c} = {deps=>{all=>[{run_sub=>"Foo::d"}, {run_sub=>"Foo::e"}]},
             args=>{alt=>"bool"}};
 sub c {
     my %args=@_;
-    print "C".($args{alt} ? "x" : "");
+    print "C".($args{alt} ? "x" : "").($args{alt2} ? "y" : "");
     [200, "OK", "cherry"];
 }
 $SPEC{d} = {deps=>{run_sub=>"Foo::e"}, args=>{}}; # won't supplied with args
@@ -164,14 +164,40 @@ test_run(
 );
 
 test_run(
-    name          => 'args',
+    name          => 'common_args',
     subs          => ['Foo::a'],
-    args          => {alt=>1},
+    common_args   => {alt=>1},
     status        => 200,
     num_runs      => 5, num_success_runs => 5, num_failed_runs  => 0,
     num_subs      => 5, num_success_subs => 5, num_failed_subs  => 0,
     num_run_subs  => 5, num_skipped_subs => 0,
     output_re     => qr/^EDCxBxAx$/,
+);
+
+test_run(
+    name          => 'per-sub args (alt2 given to a, '.
+        'not to b/c due to implicit add)',
+    subs          => ['Foo::a'],
+    common_args   => {alt=>1},
+    sub_args      => [{alt2=>1}],
+    status        => 200,
+    output_re     => qr/^EDCxBxAxy$/,
+);
+test_run(
+    name          => 'per-sub args (alt2 given to b due to no args spec)',
+    subs          => ['Foo::b'],
+    common_args   => {alt=>1},
+    sub_args      => [{alt2=>1}],
+    status        => 200,
+    output_re     => qr/^EDCxBxy$/,
+);
+test_run(
+    name          => 'per-sub args (alt2 not given to c due to no arg spec)',
+    subs          => ['Foo::c'],
+    common_args   => {alt=>1},
+    sub_args      => [{alt2=>1}],
+    status        => 200,
+    output_re     => qr/^EDCx$/,
 );
 
 test_run(
@@ -415,12 +441,14 @@ sub test_run {
         my $runner = Sub::Spec::Runner->new(
             %{$args{runner_args} // {}});
         $runner->load_modules(0);
-        $runner->args($args{args}) if $args{args};
+        $runner->common_args($args{common_args}) if $args{common_args};
         $runner->stop_on_sub_errors($args{stop_on_sub_errors})
             if defined($args{stop_on_sub_errors});
 
         eval {
-            $runner->add($_) for @{ $args{subs} };
+            for my $i (0..@{$args{subs}}-1) {
+                $runner->add($args{subs}[$i], $args{sub_args}[$i]);
+            }
         };
         my $eval_err = $@;
         if ($args{add_dies}) {

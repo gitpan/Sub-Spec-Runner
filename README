@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run a subroutine
 
 VERSION
-    version 0.08
+    version 0.09
 
 SYNOPSIS
     In YourModule.pm:
@@ -54,11 +54,11 @@ DESCRIPTION
     This module uses Moo for object system.
 
 ATTRIBUTES
-  args => HASHREF
+  common_args => HASHREF
     Arguments to pass to each subroutine. Note that each argument will only
-    be passed if the 'args' clause in subroutine spec specifies that the sub
-    accepts that argument, or if subroutine doesn't have an 'args' clause.
-    Example:
+    be passed if the 'common_args' clause in subroutine spec specifies that
+    the sub accepts that argument, or if subroutine doesn't have an 'args'
+    clause. Example:
 
      package Foo;
 
@@ -66,22 +66,22 @@ ATTRIBUTES
      $SPEC{sub0} = {};
      sub sub0 { ... }
 
-     $SPEC{sub1} = {args=>{}};
+     $SPEC{sub1} = {common_args=>{}};
      sub sub1 { ... }
 
-     $SPEC{sub2} = {args=>{foo=>"str"}};
+     $SPEC{sub2} = {common_args=>{foo=>"str"}};
      sub sub2 { ... }
 
-     $SPEC{sub3} = {args=>{bar=>"str"}};
+     $SPEC{sub3} = {common_args=>{bar=>"str"}};
      sub sub2 { ... }
 
-     $SPEC{sub4} = {args=>{foo=>"str", bar=>"str"}};
+     $SPEC{sub4} = {common_args=>{foo=>"str", bar=>"str"}};
      sub sub4 { ... }
 
      package main;
      use Sub::Spec::Runner;
 
-     my $runner = Sub::Spec::Runner->new(args => {foo=>1, foo=>2});
+     my $runner = Sub::Spec::Runner->new(common_args => {foo=>1, foo=>2});
      $runner->add("Foo::sub$_") for (1 2 3 4);
      $runner->run;
 
@@ -112,7 +112,7 @@ METHODS
     overriden to provide your own specs other than from %SPECS package
     variables.
 
-  $runner->add($subname)
+  $runner->add($subname[, $args])
     Add subroutine to the set of subroutines to be run. Example:
 
      $runner->add('Package::subname');
@@ -155,10 +155,11 @@ METHODS
     error.
 
     Then it will call each subroutine successively. Each subroutine will be
-    called with arguments specified in 'args' attribute, with one extra
-    special argument, '.runner' which is the runner object. Prior to running
-    a subroutine, pre_sub() will be called. It must return true, or run()
-    will immediately return with 500 error.
+    called with arguments specified in 'common_args' attribute and args
+    specified in add(), with one extra special argument, '-runner' which is
+    the runner object. Prior to running a subroutine, pre_sub() will be
+    called. It must return true, or run() will immediately return with 500
+    error.
 
     Runner will store the return value of each subroutine. Exception from
     subroutine will be trapped by eval() and upon exception return value of

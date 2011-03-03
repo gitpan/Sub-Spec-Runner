@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.08';
+  $Sub::Spec::Runner::VERSION = '0.09';
 }
 # ABSTRACT: Run a subroutine
 
@@ -33,7 +33,7 @@ has _post_sub  => (is => 'rw');
 
 
 
-has args => (is => 'rw');
+has common_args => (is => 'rw');
 
 
 has load_modules => (is => 'rw', default=>sub{1});
@@ -110,7 +110,7 @@ our $current_runner;
 sub add {
     require Sub::Spec::Clause::deps;
 
-    my ($self, $subname) = @_;
+    my ($self, $subname, $args) = @_;
     $subname = __normalize_subname($subname);
 
     return if exists $self->_sub_data->{$subname};
@@ -146,6 +146,7 @@ sub add {
         name      => $subname,
         spec      => $spec,
         fldeps    => $fldeps,
+        args      => $args,
     };
     $self->_sub_data->{$subname} = $subdata;
     push @{ $self->_sub_list }, $subname;
@@ -265,7 +266,7 @@ sub run {
             }
 
             $orig_i = $self->{_i};
-            $res = $self->_run_sub($subname);
+            $res = $self->_run_sub($subname, $sd->{args});
             $sd->{res} = $res;
             if ($self->success_res($res)) {
                 $num_success_runs++;
@@ -349,7 +350,7 @@ sub run {
 }
 
 sub _run_sub {
-    my ($self, $subname) = @_;
+    my ($self, $subname, $args) = @_;
     $log->tracef("-> _run_sub(%s)", $subname);
     my $res;
     eval {
@@ -362,16 +363,21 @@ sub _run_sub {
 
         my $sd = $self->_sub_data->{$subname};
 
-        my %args;
-        my $args = $self->args // {};
-        for (keys %$args) {
-            $args{$_} = $args->{$_} if !$sd->{spec}{args} ||
+        my %all_args;
+        my $common_args = $self->common_args // {};
+        for (keys %$common_args) {
+            $all_args{$_} = $common_args->{$_} if !$sd->{spec}{args} ||
                 $sd->{spec}{args}{$_};
         }
-        $log->tracef("-> %s(%s)", $subname, \%args);
-        $args{-runner} = $self;
+        $args //= {};
+        for (keys %$args) {
+            $all_args{$_} = $args->{$_} if !$sd->{spec}{args} ||
+                $sd->{spec}{args}{$_};
+        }
+        $log->tracef("-> %s(%s)", $subname, \%all_args);
+        $all_args{-runner} = $self;
 
-        $res = $fref->(%args);
+        $res = $fref->(%all_args);
         $log->tracef("<- %s(), res=%s", $subname, $res);
     };
     $res = [500, "sub died: $@"] if $@;
@@ -529,7 +535,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.08';
+  $Sub::Spec::Clause::deps::VERSION = '0.09';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -551,7 +557,7 @@ Sub::Spec::Runner - Run a subroutine
 
 =head1 VERSION
 
-version 0.08
+version 0.09
 
 =head1 SYNOPSIS
 
@@ -605,11 +611,11 @@ This module uses L<Moo> for object system.
 
 =head1 ATTRIBUTES
 
-=head2 args => HASHREF
+=head2 common_args => HASHREF
 
 Arguments to pass to each subroutine. Note that each argument will only be
-passed if the 'args' clause in subroutine spec specifies that the sub accepts
-that argument, or if subroutine doesn't have an 'args' clause. Example:
+passed if the 'common_args' clause in subroutine spec specifies that the sub
+accepts that argument, or if subroutine doesn't have an 'args' clause. Example:
 
  package Foo;
 
@@ -617,22 +623,22 @@ that argument, or if subroutine doesn't have an 'args' clause. Example:
  $SPEC{sub0} = {};
  sub sub0 { ... }
 
- $SPEC{sub1} = {args=>{}};
+ $SPEC{sub1} = {common_args=>{}};
  sub sub1 { ... }
 
- $SPEC{sub2} = {args=>{foo=>"str"}};
+ $SPEC{sub2} = {common_args=>{foo=>"str"}};
  sub sub2 { ... }
 
- $SPEC{sub3} = {args=>{bar=>"str"}};
+ $SPEC{sub3} = {common_args=>{bar=>"str"}};
  sub sub2 { ... }
 
- $SPEC{sub4} = {args=>{foo=>"str", bar=>"str"}};
+ $SPEC{sub4} = {common_args=>{foo=>"str", bar=>"str"}};
  sub sub4 { ... }
 
  package main;
  use Sub::Spec::Runner;
 
- my $runner = Sub::Spec::Runner->new(args => {foo=>1, foo=>2});
+ my $runner = Sub::Spec::Runner->new(common_args => {foo=>1, foo=>2});
  $runner->add("Foo::sub$_") for (1 2 3 4);
  $runner->run;
 
@@ -665,7 +671,7 @@ dependency clause). You can turn off this behavior by setting this attribute to 
 Get spec for sub named $subname. Will be called by add(). Can be overriden to
 provide your own specs other than from %SPECS package variables.
 
-=head2 $runner->add($subname)
+=head2 $runner->add($subname[, $args])
 
 Add subroutine to the set of subroutines to be run. Example:
 
@@ -711,10 +717,10 @@ After that, it will will call pre_run(), which you can override. pre_run() must
 return true, or run() will immediately return with 412 error.
 
 Then it will call each subroutine successively. Each subroutine will be called
-with arguments specified in 'args' attribute, with one extra special argument,
-'.runner' which is the runner object. Prior to running a subroutine, pre_sub()
-will be called. It must return true, or run() will immediately return with 500
-error.
+with arguments specified in 'common_args' attribute and args specified in add(),
+with one extra special argument, '-runner' which is the runner object. Prior to
+running a subroutine, pre_sub() will be called. It must return true, or run()
+will immediately return with 500 error.
 
 Runner will store the return value of each subroutine. Exception from subroutine
 will be trapped by eval() and upon exception return value of subroutine is
