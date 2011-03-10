@@ -145,6 +145,9 @@ sub undo1 {
     [200, "OK"];
 }
 
+$SPEC{naked1} = {result_naked=>1};
+sub naked1 { 10 }
+
 package Bar;
 sub a { [200, "OK"] }
 sub b { [200, "OK"] }
@@ -483,6 +486,15 @@ test_run(
         eval { $runner->result('Foo::xxx') };
         ok($@, "result(unknown) -> dies");
     },
+);
+
+test_run(
+    name          => 'naked_result',
+    subs          => ['Foo::naked1'],
+    status        => 200,
+    num_runs      => 1, num_success_runs => 1, num_failed_runs  => 0,
+    num_subs      => 1, num_success_subs => 1, num_failed_subs  => 0,
+    num_run_subs  => 1, num_skipped_subs => 0,
 );
 
 test_run(

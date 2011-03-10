@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run a subroutine
 
 VERSION
-    version 0.12
+    version 0.13
 
 SYNOPSIS
     In YourModule.pm:
@@ -334,7 +334,9 @@ FAQ
 
     Our Spanel project uses this module to run "setuplets", which are
     hosting server setup routines broken down to smaller bits. Each bit can
-    be run individually but will always respect dependencies.
+    be run individually (in dry-run and/or undo mode) but dependencies will
+    always be respected (e.g. setuplets A requires running B, so running
+    only A will always run B first).
 
 SEE ALSO
     Sub::Spec

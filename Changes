@@ -1,5 +1,12 @@
 Revision history for Sub::Spec::Runner
 
+0.13     2011-03-11
+
+         [ENHANCEMENTS]
+
+         * Support 'result_naked' spec clause.
+
+
 0.12     2011-03-10
 
          [DOCUMENTATION]

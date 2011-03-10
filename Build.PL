@@ -17,7 +17,7 @@ my %module_build_args = (
     'Steven Haryanto <stevenharyanto@gmail.com>'
   ],
   'dist_name' => 'Sub-Spec-Runner',
-  'dist_version' => '0.12',
+  'dist_version' => '0.13',
   'license' => 'perl',
   'module_name' => 'Sub::Spec::Runner',
   'recommends' => {},
@@ -29,7 +29,7 @@ my %module_build_args = (
     'File::chdir' => '0',
     'Log::Any' => '0',
     'Moo' => '0',
-    'Sub::Spec' => '0.06',
+    'Sub::Spec' => '0.08',
     'Test::More' => '0.96',
     'YAML::Syck' => '0',
     'perl' => '5.010000'

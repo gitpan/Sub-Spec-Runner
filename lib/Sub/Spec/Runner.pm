@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.12';
+  $Sub::Spec::Runner::VERSION = '0.13';
 }
 # ABSTRACT: Run a subroutine
 
@@ -283,6 +283,7 @@ sub run {
             my $subname = $self->_sub_list->[ $self->{_i} ];
             my $sd      = $self->_sub_data->{$subname};
             next if $sd->{done};
+            my $spec    = $sd->{spec};
 
             $some_not_done++;
             $self->_log_running_sub($subname);
@@ -308,6 +309,7 @@ sub run {
 
             $orig_i = $self->{_i};
             $res = $self->_run_sub($subname, $sd->{args});
+            if ($spec->{result_naked}) { $res = [200, "OK (naked)", $res] }
             $sd->{res} = $res;
             if ($self->success_res($res)) {
                 $num_success_runs++;
@@ -590,7 +592,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.12';
+  $Sub::Spec::Clause::deps::VERSION = '0.13';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -612,7 +614,7 @@ Sub::Spec::Runner - Run a subroutine
 
 =head1 VERSION
 
-version 0.12
+version 0.13
 
 =head1 SYNOPSIS
 
@@ -966,8 +968,9 @@ L<Sub::Spec::CmdLine> uses this module in a straightforward way.
 Sub::Spec::CmdLine allows you to run subroutines from the command-line.
 
 Our Spanel project uses this module to run "setuplets", which are hosting server
-setup routines broken down to smaller bits. Each bit can be run individually but
-will always respect dependencies.
+setup routines broken down to smaller bits. Each bit can be run individually (in
+dry-run and/or undo mode) but dependencies will always be respected (e.g.
+setuplets A requires running B, so running only A will always run B first).
 
 =head1 SEE ALSO
 
