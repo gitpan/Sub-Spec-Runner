@@ -542,6 +542,9 @@ test_run(
     subs          => ['Foo::rev1'],
     status        => 200,
     output_re     => qr/^pure1undo1rev1$/,
+    test_after_run=> sub {
+        ok((-f "$tempdir/Foo.undo1.yaml"), "undo data saved");
+    },
 );
 test_run(
     name          => 'undo: 1',
@@ -563,6 +566,9 @@ test_run(
     subs          => ['Foo::rev1'],
     status        => 200,
     output_re     => qr/^rev1undo1pure1$/,
+    test_after_run=> sub {
+        ok(!(-f "$tempdir/Foo.undo1.yaml"), "undo data file removed");
+    },
 );
 
 if (Test::More->builder->is_passing) {

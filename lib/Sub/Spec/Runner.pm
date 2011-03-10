@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.10';
+  $Sub::Spec::Runner::VERSION = '0.11';
 }
 # ABSTRACT: Run a subroutine
 
@@ -590,7 +590,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.10';
+  $Sub::Spec::Clause::deps::VERSION = '0.11';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -612,7 +612,7 @@ Sub::Spec::Runner - Run a subroutine
 
 =head1 VERSION
 
-version 0.10
+version 0.11
 
 =head1 SYNOPSIS
 

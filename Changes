@@ -1,40 +1,47 @@
 Revision history for Sub::Spec::Runner
 
+0.11     2011-03-10
+
+         [BUG FIXES]
+
+         * Fix small bug in SS::Runner::State's delete().
+
+
 0.10     2011-03-10
 
          [ENHANCEMENTS]
 
-         add 'undo' and 'dry_run' attributes.
+         * Add 'undo' and 'dry_run' attributes.
 
 
 0.09     2011-03-03
 
          [INCOMPATIBLE CHANGES]
 
-         'args' attribute is now 'common_args'.
+         * 'args' attribute is now 'common_args'.
 
          [ENHANCEMENTS]
 
-         add($subname[, $args]): accepts per-sub args.
+         * Add($subname[, $args]): accepts per-sub args.
 
 
 0.08     2011-02-28
 
          [INCOMPATIBLE CHANGES]
 
-         Rename module: Sub::Spec::Runner::Orderly -> Sub::Spec::Runner.
+         * Rename module: Sub::Spec::Runner::Orderly -> Sub::Spec::Runner.
 
-         Update to latest Sub::Spec: 'depends' clause becomes 'dep'. 'sub' dep
-         clause becomes 'run_sub'.
+         * Update to latest Sub::Spec: 'depends' clause becomes 'dep'. 'sub' dep
+           clause becomes 'run_sub'.
 
-         Check dependencies (using SS::Clause::deps::check()) before add()-ing.
+         * Check dependencies (using SS::Clause::deps::check()) before add()-ing.
 
-         run() no longer accepts %opts, use the new attributes:
-         stop_on_sub_errors and order_before_run instead.
+         * run() no longer accepts %opts, use the new attributes:
+           stop_on_sub_errors and order_before_run instead.
 
          [ENHANCEMENTS]
 
-         Add result().
+         * Add result().
 
 
 0.07     2011-02-25

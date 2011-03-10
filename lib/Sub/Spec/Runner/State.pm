@@ -1,12 +1,13 @@
 package Sub::Spec::Runner::State;
 BEGIN {
-  $Sub::Spec::Runner::State::VERSION = '0.10';
+  $Sub::Spec::Runner::State::VERSION = '0.11';
 }
 # ABSTRACT: Save undo data
 
 use 5.010;
 use strict;
 use warnings;
+use Log::Any '$log';
 
 use Moo;
 
@@ -50,7 +51,10 @@ sub set {
     $self->_load;
     while (my ($key, $val) = splice @_, 0, 2) {
         $self->{data}{$key} = $val;
+        $log->tracef("Setting key: %s => %s", $key, $val);
     }
+    $log->tracef("Writing file %s (%d keys) ...",
+                 $self->{path_file}, scalar(keys %{$self->{data}}));
     DumpFile($self->{path_file}, $self->{data});
 }
 
@@ -63,15 +67,19 @@ sub delete {
     } else {
         $opts = {};
     }
-    $self->{subname} = $opts->{subname} // (caller(0))[3];
+    $self->{subname} = $opts->{subname} // (caller(1))[3];
 
     use autodie;
 
     $self->_load;
     delete $self->{data}{$_} for @_;
     if (scalar keys %{$self->{data}}) {
+        $log->tracef("Writing file %s (%d keys) ...",
+                     $self->{path_file}, scalar(keys %{$self->{data}}));
         DumpFile($self->{path_file}, $self->{data});
     } else {
+        $log->tracef("Deleting file %s (no more keys) ...",
+                     $self->{path_file});
         unlink $self->{path_file} if -f $self->{path_file};
     }
 }
@@ -90,6 +98,7 @@ sub _load {
     if (!$self->{data} ||
             !$self->{path_file_mtime} ||
                 $self->{path_file_mtime} != $mtime) {
+        $log->trace("Reading file $self->{path_file} ...");
         $self->{data} = LoadFile($self->{path_file});
         $self->{path_file_mtime} = $mtime;
     }
@@ -120,7 +129,7 @@ Sub::Spec::Runner::State - Save undo data
 
 =head1 VERSION
 
-version 0.10
+version 0.11
 
 =for Pod::Coverage get set delete
 
