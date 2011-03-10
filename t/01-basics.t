@@ -7,7 +7,10 @@ use Log::Any '$log';
 use Test::More 0.96;
 
 use Capture::Tiny qw(capture);
+use File::chdir;
+use File::Temp qw(tempdir);
 use Sub::Spec::Runner;
+use Sub::Spec::Runner::State;
 
 package Foo;
 use 5.010;
@@ -86,6 +89,59 @@ sub z {
 
 $SPEC{unmet} = {deps=>{code=>sub{0}}};
 sub unmet {
+    [200, "OK"];
+}
+
+# for testing dry_run
+$SPEC{pure1} = {features=>{pure=>1}};
+sub pure1 {
+    my %args = @_;
+    print "pure1";
+    [200, "OK"];
+}
+$SPEC{dry1} = {features=>{dry_run=>1}, deps=>{run_sub=>'Foo::dry2'}};
+sub dry1 {
+    my %args = @_;
+    print "dry1" unless $args{-dry_run};
+    [200, "OK"];
+}
+$SPEC{dry2} = {features=>{dry_run=>1}, deps=>{run_sub=>'Foo::pure1'}};
+sub dry2 {
+    my %args = @_;
+    print "dry2" unless $args{-dry_run};
+    [200, "OK"];
+}
+
+# for testing undo: undo1
+our $DATA = "what is the meaning of life?";
+our $ORIG_DATA = $DATA;
+$SPEC{rev1} = {summary=>"Double value in \$DATA",
+                features=>{reverse=>1}, deps=>{run_sub=>'Foo::undo1'}};
+sub rev1 {
+    my %args    = @_;
+    my $reverse = $args{-reverse};
+    print "rev1";
+    if ($reverse) { $DATA /= 2 } else { $DATA *= 2 }
+    [200, "OK"];
+}
+$SPEC{undo1} = {summary=>"Replace content of \$DATA with '42'",
+                features=>{undo=>1}, deps=>{run_sub=>'Foo::pure1'}};
+sub undo1 {
+    my %args  = @_;
+    my $undo  = $args{-undo};
+    my $state = $args{-state};
+    print "undo1";
+    if ($undo) {
+        # we haven't set $DATA yet, don't undo
+        return [304, "Not modified"] unless $state->get('done');
+        $DATA = $state->get('orig');
+        $state->delete('orig', 'done');
+    } else {
+        # warning: if done twice, previous undo data is overwritten
+        my $save = $DATA;
+        $DATA = 42;
+        $state->set(orig => $save, done => 1);
+    }
     [200, "OK"];
 }
 
@@ -428,6 +484,94 @@ test_run(
         ok($@, "result(unknown) -> dies");
     },
 );
+
+test_run(
+    name          => 'dry_run: all subs must have required features',
+    runner_args   => {dry_run=>1},
+    subs          => ['Foo::a'],
+    status        => 412,
+);
+test_run(
+    name          => 'dry_run: disabled',
+    runner_args   => {dry_run=>0},
+    subs          => ['Foo::dry1'],
+    status        => 200,
+    output_re     => qr/^pure1dry2dry1$/,
+);
+test_run(
+    name          => 'dry_run: enabled',
+    runner_args   => {dry_run=>1},
+    subs          => ['Foo::dry1'],
+    status        => 200,
+    output_re     => qr/^pure1$/,
+);
+
+my $tempdir = tempdir(CLEANUP => 1);
+chdir $tempdir; # so it can't be deleted
+my $state = Sub::Spec::Runner::State->new(root_dir=>$tempdir);
+
+test_run(
+    name          => 'undo: all subs must have required features (0)',
+    runner_args   => {undo=>0, state=>$state},
+    subs          => ['Foo::a'],
+    status        => 412,
+);
+test_run(
+    name          => 'undo: all subs must have required features (1)',
+    runner_args   => {undo=>1, state=>$state},
+    subs          => ['Foo::a'],
+    status        => 412,
+);
+test_run(
+    name          => 'undo: 0',
+    runner_args   => {undo=>0, state=>$state,
+                      _post_sub => sub {
+                          my ($self, $subname) = @_;
+                          if ($subname eq 'Foo::pure1') {
+                              is($Foo::DATA, $Foo::ORIG_DATA,
+                                 'after pure1, DATA still unchanged');
+                          } elsif ($subname eq 'Foo::undo1') {
+                              is($Foo::DATA, 42,
+                                 'after undo1, DATA becomes 42');
+                          } elsif ($subname eq 'Foo::rev1') {
+                              is($Foo::DATA, 84,
+                                 'after rev1, DATA becomes 84');
+                          }
+                          1;
+                      }},
+    subs          => ['Foo::rev1'],
+    status        => 200,
+    output_re     => qr/^pure1undo1rev1$/,
+);
+test_run(
+    name          => 'undo: 1',
+    runner_args   => {undo=>1, state=>$state,
+                      _post_sub => sub {
+                          my ($self, $subname) = @_;
+                          if ($subname eq 'Foo::rev1') {
+                              is($Foo::DATA, 42,
+                                 'after rev1 (-reverse=>1), DATA becomes 42');
+                          } elsif ($subname eq 'Foo::undo1') {
+                              is($Foo::DATA, $Foo::ORIG_DATA,
+                                 'after undo1 (-undo=>1), DATA restored');
+                          } elsif ($subname eq 'Foo::pure1') {
+                              is($Foo::DATA, $Foo::ORIG_DATA,
+                                 'after rev1, DATA unchanged');
+                          }
+                          1;
+                      }},
+    subs          => ['Foo::rev1'],
+    status        => 200,
+    output_re     => qr/^rev1undo1pure1$/,
+);
+
+if (Test::More->builder->is_passing) {
+    diag "all tests successful, deleting undo dir";
+    $CWD = "/";
+} else {
+    # don't delete test data dir if there are errors
+    diag "there are failing tests, not deleting undo $tempdir";
+}
 
 # XXX test load_modules=1?
 

@@ -1,19 +1,26 @@
 Revision history for Sub::Spec::Runner
 
+0.10     2011-03-10
+
+         [ENHANCEMENTS]
+
+         add 'undo' and 'dry_run' attributes.
+
+
 0.09     2011-03-03
 
-       [INCOMPATIBLE CHANGES]
+         [INCOMPATIBLE CHANGES]
 
          'args' attribute is now 'common_args'.
 
-       [ENHANCEMENTS]
+         [ENHANCEMENTS]
 
          add($subname[, $args]): accepts per-sub args.
 
 
 0.08     2011-02-28
 
-       [INCOMPATIBLE CHANGES]
+         [INCOMPATIBLE CHANGES]
 
          Rename module: Sub::Spec::Runner::Orderly -> Sub::Spec::Runner.
 
@@ -25,7 +32,7 @@ Revision history for Sub::Spec::Runner
          run() no longer accepts %opts, use the new attributes:
          stop_on_sub_errors and order_before_run instead.
 
-       [ENHANCEMENTS]
+         [ENHANCEMENTS]
 
          Add result().
 

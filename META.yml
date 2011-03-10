@@ -16,12 +16,15 @@ name: Sub-Spec-Runner
 requires:
   Algorithm::Dependency: 0
   Capture::Tiny: 0
+  File::Path: 2.08
+  File::chdir: 0
   Log::Any: 0
   Moo: 0
   Sub::Spec: 0.06
   Test::More: 0.96
+  YAML::Syck: 0
   perl: 5.010000
 resources:
   homepage: http://search.cpan.org/dist/Sub-Spec-Runner/
   repository: http://github.com/sharyanto/perl-Sub-Spec-Runner
-version: 0.09
+version: 0.10

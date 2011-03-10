@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.09';
+  $Sub::Spec::Runner::VERSION = '0.10';
 }
 # ABSTRACT: Run a subroutine
 
@@ -43,6 +43,15 @@ has stop_on_sub_errors => (is => 'rw', default=>sub{1});
 
 
 has order_before_run => (is => 'rw', default=>sub{1});
+
+
+has undo => (is => 'rw');
+
+
+has dry_run => (is => 'rw', default=>sub{0});
+
+
+has state => (is => 'rw');
 
 
 
@@ -184,6 +193,12 @@ sub order_by_dependencies {
         return 0;
     }
 
+    if ($self->undo) {
+        $log->trace("Reversing order of subroutines because ".
+                        "we are running in undo mode");
+        $subs = [reverse @$subs];
+    }
+
     $self->_sub_list($subs);
     1;
 }
@@ -212,6 +227,32 @@ sub run {
 
     return [400, "No subroutines to run, please add() some first"]
         unless @{ $self->_sub_list };
+
+    if (defined $self->undo) {
+        $log->trace("Checking undo/reverse feature of subroutines ...");
+        while (my ($sn, $sd) = each %{$self->{_sub_data}}) {
+            my $f = $sd->{spec}{features};
+            return [412, "Cannot run with undo: $sn doesn't support ".
+                        "undo/reverse/pure"]
+                unless $f && ($f->{undo} || $f->{reverse} || $f->{pure});
+        }
+        unless ($self->state) {
+            $log->trace("Creating state object ...");
+            require Sub::Spec::Runner::State;
+            $self->state(Sub::Spec::Runner::State->new);
+        }
+    }
+
+    if ($self->dry_run) {
+        $log->trace("Checking dry_run feature of subroutines ...");
+        while (my ($sn, $sd) = each %{$self->{_sub_data}}) {
+            my $f = $sd->{spec}{features};
+            return [412, "Cannot run with dry_run: $sn doesn't support ".
+                        "dry_run"]
+                unless $f && ($f->{dry_run} || $f->{pure});
+        }
+    }
+
     if ($self->order_before_run) {
         return [412, "Cannot resolve dependencies, please check for circulars"]
             unless $self->order_by_dependencies;
@@ -362,6 +403,7 @@ sub _run_sub {
         }
 
         my $sd = $self->_sub_data->{$subname};
+        my $spec = $sd->{spec};
 
         my %all_args;
         my $common_args = $self->common_args // {};
@@ -373,6 +415,19 @@ sub _run_sub {
         for (keys %$args) {
             $all_args{$_} = $args->{$_} if !$sd->{spec}{args} ||
                 $sd->{spec}{args}{$_};
+        }
+        if (defined $self->undo) {
+            if ($spec->{features}{pure}) {
+                # do nothing
+            } elsif ($spec->{features}{reverse}) {
+                $all_args{-reverse} = $self->undo;
+            } elsif ($spec->{features}{undo}) {
+                $all_args{-undo}  = $self->undo;
+                $all_args{-state} = $self->state;
+            }
+        }
+        if (defined $self->dry_run) {
+            $all_args{-dry_run} = $self->dry_run;
         }
         $log->tracef("-> %s(%s)", $subname, \%all_args);
         $all_args{-runner} = $self;
@@ -535,7 +590,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.09';
+  $Sub::Spec::Clause::deps::VERSION = '0.10';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -557,7 +612,7 @@ Sub::Spec::Runner - Run a subroutine
 
 =head1 VERSION
 
-version 0.09
+version 0.10
 
 =head1 SYNOPSIS
 
@@ -614,8 +669,8 @@ This module uses L<Moo> for object system.
 =head2 common_args => HASHREF
 
 Arguments to pass to each subroutine. Note that each argument will only be
-passed if the 'common_args' clause in subroutine spec specifies that the sub
-accepts that argument, or if subroutine doesn't have an 'args' clause. Example:
+passed if the 'args' clause in subroutine spec specifies that the sub accepts
+that argument, or if subroutine doesn't have an 'args' clause. Example:
 
  package Foo;
 
@@ -623,16 +678,16 @@ accepts that argument, or if subroutine doesn't have an 'args' clause. Example:
  $SPEC{sub0} = {};
  sub sub0 { ... }
 
- $SPEC{sub1} = {common_args=>{}};
+ $SPEC{sub1} = {args=>{}};
  sub sub1 { ... }
 
- $SPEC{sub2} = {common_args=>{foo=>"str"}};
+ $SPEC{sub2} = {args=>{foo=>"str"}};
  sub sub2 { ... }
 
- $SPEC{sub3} = {common_args=>{bar=>"str"}};
+ $SPEC{sub3} = {args=>{bar=>"str"}};
  sub sub2 { ... }
 
- $SPEC{sub4} = {common_args=>{foo=>"str", bar=>"str"}};
+ $SPEC{sub4} = {args=>{foo=>"str", bar=>"str"}};
  sub sub4 { ... }
 
  package main;
@@ -642,8 +697,9 @@ accepts that argument, or if subroutine doesn't have an 'args' clause. Example:
  $runner->add("Foo::sub$_") for (1 2 3 4);
  $runner->run;
 
-Then only sub0 and sub4 will receive 'foo' and 'bar' args. sub1 won't receive
-any arguments, sub2 will only receive 'foo', sub3 will only receive 'bar'.
+Then only sub0 and sub4 will receive the 'foo' and 'bar' args. sub1 won't
+receive any arguments, sub2 will only receive 'foo', sub3 will only receive
+'bar'.
 
 =head2 load_modules => BOOL (default 1)
 
@@ -663,6 +719,37 @@ by overriding success_res().
 Before run() runs the subroutines, it will call order_by_dependencies() to
 reorder the added subroutines according to dependency tree (the 'sub_run'
 dependency clause). You can turn off this behavior by setting this attribute to false.q
+
+=head2 undo => BOOL (default undef)
+
+If set to 0 or 1, then these things will happen: 1) Prior to running, all added
+subroutines will be checked and must have 'undo' or 'reverse' feature, or are
+'pure' (see L<Sub::Spec::Clause::features> for more details on specifying
+features). 2) '-undo' and '-state' special argument will be given with value 0/1
+to each sub supporting undo (or '-reverse' 0/1 for subroutines supporting
+reverse). No special argument will be given for pure subroutines.
+
+Additionally, if 'undo' is set to 1, then order_by_dependencies() will reverse
+the order of run. This will only be done if 'order_before_run' attribute is set
+to true. Otherwise, you might have to do the reversing of order by yourself, if
+so desired.
+
+In summary: setting to 0 means run normally, but instruct subroutines to store
+undo information to enable undo in the future. Setting to 1 means undo. Setting
+to undef (the default) means disregard undo stuffs.
+
+=head2 dry_run => BOOL (default 0)
+
+If set to 0 or 1, then these things will happen: 1) Prior to running, all added
+subroutines will be checked and must have 'dry_run' feature, or are 'pure' (see
+L<Sub::Spec::Clause::features> for more details on specifying features). 2)
+'-dry_run' special argument will be given with value 0/1 to each sub supporting
+dry run. No special argument will be given for pure subroutines.
+
+=head2 state => STATE OBJECT
+
+Used to store state object, set by create_state_obj() when running under undo
+mode. State object is used by subroutines to store undo information.
 
 =head1 METHODS
 
@@ -709,11 +796,24 @@ subroutines can belong to this list too if skip()-ed.
 
 Run (call) a set of subroutines previously added by add().
 
-First it will call order_by_dependencies() to reorder the subroutines according
-to dependency order. This can be turned off via setting 'order_before_run'
-attribute to false.
+First it will check 'undo' attribute. If defined, then all added subroutines are
+required to have undo/reverse/pure feature or otherwise run() will immediately
+return with error 412. After that state object (L<Sub::Spec::Runner::State>
+instance) will be created and 'state' attribute will be set to this.
+Sub::Spec::Runner::State is a state object which stores data in YAML files
+under ~/.subspec/.undo/, one per subroutine. You can use your own state object
+by setting the 'state' attribute before this. If 'state' attribute is already
+set, run() will not overwrite it.
 
-After that, it will will call pre_run(), which you can override. pre_run() must
+Then it will check 'dry_run' attribute. If true, then all added subroutines are
+required to have dry_run/pure feature or otherwise run() will immediately return
+with error 412.
+
+After that it will call order_by_dependencies() to reorder the subroutines
+according to dependency order. This can be turned off via setting
+'order_before_run' attribute to false.
+
+After that, it will call pre_run(), which you can override. pre_run() must
 return true, or run() will immediately return with 412 error.
 
 Then it will call each subroutine successively. Each subroutine will be called
@@ -728,10 +828,10 @@ assumed to be 500.
 
 The subroutine being run can see the status/result of other subroutines by
 calling $runner->done($subname), $runner->result($subname). It can share data by
-using $runner->stash(). It can also change the ordering or repeat/skip some
-subroutines by calling $runner->skip(), skip_all(), repeat(), repeat_all(),
-branch_done(). It can jump to other subroutines using $runner->jump(). See the
-respective method documentation for more details.
+using $runner->stash(). It can also repeat/skip some subroutines by calling
+$runner->skip(), skip_all(), repeat(), repeat_all(), branch_done(). It can jump
+to other subroutines using $runner->jump(). See the respective method
+documentation for more details.
 
 After running a subroutine, post_sub() will be called. It must return true, or
 run() will immediately return with 500 error.
@@ -742,7 +842,7 @@ result. The meaning of subroutine's success can be changed by overriding
 success_res() (by default, all 2xx and 3xx are considered success).
 
 After all subroutines have been run (or skipped), run() will call post_run()
-which must return true or otherwise run() will immediately exit with 500 status.
+which must return true. Otherwise run() will immediately exit with 500 status.
 
 After that, run() will return the summary in RESULT (number of subroutines run,
 skipped, successful, etc). It will return status 200 if there are at least one
