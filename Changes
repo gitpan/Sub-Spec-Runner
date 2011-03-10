@@ -1,5 +1,12 @@
 Revision history for Sub::Spec::Runner
 
+0.12     2011-03-10
+
+         [DOCUMENTATION]
+
+         * Add FAQ.
+
+
 0.11     2011-03-10
 
          [BUG FIXES]

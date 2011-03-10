@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.11';
+  $Sub::Spec::Runner::VERSION = '0.12';
 }
 # ABSTRACT: Run a subroutine
 
@@ -590,7 +590,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.11';
+  $Sub::Spec::Clause::deps::VERSION = '0.12';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -612,7 +612,7 @@ Sub::Spec::Runner - Run a subroutine
 
 =head1 VERSION
 
-version 0.11
+version 0.12
 
 =head1 SYNOPSIS
 
@@ -923,6 +923,51 @@ post_sub().
 
 Get/set stash data. This is a generic place to share data between subroutines
 being run.
+
+=head1 FAQ
+
+=head2 What is the point of this module?
+
+L<Sub::Spec> allows us to add various useful metadata to subroutines, like
+dependencies and specific features. Sub::Spec::Runner utilizes this information
+to make calling subroutines a bit more like running programs/installing software
+packages, e.g.:
+
+=over 4
+
+=item * checking requirements prior to calling a subroutine;
+
+For example, you can specify that backup_db() requires the program
+"/usr/bin/mysqldump".
+
+=item * reordering list of subroutines to run according to interdependencies;
+
+You can specify that a() and b() must be run before c(), d() must be run before
+c(), and so on. The runner will automatically resolve dependencies by loading
+required modules and reorder subroutine execution.
+
+=item * running in dry-run mode;
+
+See 'dry_run' attribute for more details.
+
+=item * running in undo mode;
+
+See 'undo' attribute for mor details.
+
+=item * summary/statistics;
+
+Including the number of subroutines run, number of successes/failures, etc.
+
+=back
+
+=head2 What are some of the applications for this module?
+
+L<Sub::Spec::CmdLine> uses this module in a straightforward way.
+Sub::Spec::CmdLine allows you to run subroutines from the command-line.
+
+Our Spanel project uses this module to run "setuplets", which are hosting server
+setup routines broken down to smaller bits. Each bit can be run individually but
+will always respect dependencies.
 
 =head1 SEE ALSO
 

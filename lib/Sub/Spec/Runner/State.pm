@@ -1,6 +1,6 @@
 package Sub::Spec::Runner::State;
 BEGIN {
-  $Sub::Spec::Runner::State::VERSION = '0.11';
+  $Sub::Spec::Runner::State::VERSION = '0.12';
 }
 # ABSTRACT: Save undo data
 
@@ -129,7 +129,7 @@ Sub::Spec::Runner::State - Save undo data
 
 =head1 VERSION
 
-version 0.11
+version 0.12
 
 =for Pod::Coverage get set delete
 

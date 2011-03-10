@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run a subroutine
 
 VERSION
-    version 0.11
+    version 0.12
 
 SYNOPSIS
     In YourModule.pm:
@@ -294,6 +294,47 @@ METHODS
   $runner->stash(NAME[, VALUE]) => OLDVAL
     Get/set stash data. This is a generic place to share data between
     subroutines being run.
+
+FAQ
+  What is the point of this module?
+    Sub::Spec allows us to add various useful metadata to subroutines, like
+    dependencies and specific features. Sub::Spec::Runner utilizes this
+    information to make calling subroutines a bit more like running
+    programs/installing software packages, e.g.:
+
+    *   checking requirements prior to calling a subroutine;
+
+        For example, you can specify that backup_db() requires the program
+        "/usr/bin/mysqldump".
+
+    *   reordering list of subroutines to run according to
+        interdependencies;
+
+        You can specify that a() and b() must be run before c(), d() must be
+        run before c(), and so on. The runner will automatically resolve
+        dependencies by loading required modules and reorder subroutine
+        execution.
+
+    *   running in dry-run mode;
+
+        See 'dry_run' attribute for more details.
+
+    *   running in undo mode;
+
+        See 'undo' attribute for mor details.
+
+    *   summary/statistics;
+
+        Including the number of subroutines run, number of
+        successes/failures, etc.
+
+  What are some of the applications for this module?
+    Sub::Spec::CmdLine uses this module in a straightforward way.
+    Sub::Spec::CmdLine allows you to run subroutines from the command-line.
+
+    Our Spanel project uses this module to run "setuplets", which are
+    hosting server setup routines broken down to smaller bits. Each bit can
+    be run individually but will always respect dependencies.
 
 SEE ALSO
     Sub::Spec
