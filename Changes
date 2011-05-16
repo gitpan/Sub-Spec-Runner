@@ -1,5 +1,14 @@
 Revision history for Sub::Spec::Runner
 
+0.14     2011-05-16
+
+         [INCOMPATIBLE CHANGES]
+
+         * Update to latest Sub::Spec specification: -undo becomes -undo_action,
+           -state becomes -undo_data. Saves undo data in ~/.subspec/.undo by
+           default.
+
+
 0.13     2011-03-11
 
          [ENHANCEMENTS]

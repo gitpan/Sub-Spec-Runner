@@ -10,7 +10,9 @@ use Capture::Tiny qw(capture);
 use File::chdir;
 use File::Temp qw(tempdir);
 use Sub::Spec::Runner;
-use Sub::Spec::Runner::State;
+
+my $tempdir = tempdir(CLEANUP => 1);
+chdir $tempdir; # so it can't be deleted
 
 package Foo;
 use 5.010;
@@ -128,21 +130,19 @@ $SPEC{undo1} = {summary=>"Replace content of \$DATA with '42'",
                 features=>{undo=>1}, deps=>{run_sub=>'Foo::pure1'}};
 sub undo1 {
     my %args  = @_;
-    my $undo  = $args{-undo};
-    my $state = $args{-state};
+    my $undo_action = $args{-undo_action};
+    my $undo_data   = $args{-undo_data};
     print "undo1";
-    if ($undo) {
-        # we haven't set $DATA yet, don't undo
-        return [304, "Not modified"] unless $state->get('done');
-        $DATA = $state->get('orig');
-        $state->delete('orig', 'done');
+    if ($undo_action eq 'undo') {
+        return [304, "Not modified"] unless $undo_data->[0];
+        $DATA = $undo_data->[0];
+        return [200, "OK"];
     } else {
         # warning: if done twice, previous undo data is overwritten
         my $save = $DATA;
         $DATA = 42;
-        $state->set(orig => $save, done => 1);
+        [200, "OK", undef, {undo_data=>[$save]}];
     }
-    [200, "OK"];
 }
 
 $SPEC{naked1} = {result_naked=>1};
@@ -518,25 +518,21 @@ test_run(
     output_re     => qr/^pure1$/,
 );
 
-my $tempdir = tempdir(CLEANUP => 1);
-chdir $tempdir; # so it can't be deleted
-my $state = Sub::Spec::Runner::State->new(root_dir=>$tempdir);
-
 test_run(
     name          => 'undo: all subs must have required features (0)',
-    runner_args   => {undo=>0, state=>$state},
+    runner_args   => {undo=>0},
     subs          => ['Foo::a'],
     status        => 412,
 );
 test_run(
     name          => 'undo: all subs must have required features (1)',
-    runner_args   => {undo=>1, state=>$state},
+    runner_args   => {undo=>1},
     subs          => ['Foo::a'],
     status        => 412,
 );
 test_run(
     name          => 'undo: 0',
-    runner_args   => {undo=>0, state=>$state,
+    runner_args   => {undo=>0,
                       _post_sub => sub {
                           my ($self, $subname) = @_;
                           if ($subname eq 'Foo::pure1') {
@@ -560,7 +556,7 @@ test_run(
 );
 test_run(
     name          => 'undo: 1',
-    runner_args   => {undo=>1, state=>$state,
+    runner_args   => {undo=>1,
                       _post_sub => sub {
                           my ($self, $subname) = @_;
                           if ($subname eq 'Foo::rev1') {
@@ -584,11 +580,11 @@ test_run(
 );
 
 if (Test::More->builder->is_passing) {
-    diag "all tests successful, deleting undo dir";
+    diag "all tests successful, deleting undo data dir";
     $CWD = "/";
 } else {
     # don't delete test data dir if there are errors
-    diag "there are failing tests, not deleting undo $tempdir";
+    diag "there are failing tests, not deleting undo data dir $tempdir";
 }
 
 # XXX test load_modules=1?
@@ -601,7 +597,9 @@ sub test_run {
     subtest $args{name} => sub {
 
         my $runner = Sub::Spec::Runner->new(
-            %{$args{runner_args} // {}});
+            %{$args{runner_args} // {}},
+            undo_data_dir => $tempdir,
+        );
         $runner->load_modules(0);
         $runner->common_args($args{common_args}) if $args{common_args};
         $runner->stop_on_sub_errors($args{stop_on_sub_errors})

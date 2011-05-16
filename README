@@ -1,8 +1,8 @@
 NAME
-    Sub::Spec::Runner - Run a subroutine
+    Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.13
+    version 0.14
 
 SYNOPSIS
     In YourModule.pm:
@@ -44,12 +44,11 @@ SYNOPSIS
      a
 
 DESCRIPTION
-    This class "runs" a subroutine. "Running" basically means loading the
-    module and calling the subroutine, plus a few other stuffs. See run()
-    for more details.
+    This class "runs" a set of subroutines. "Running" a subroutine basically
+    means loading the module and calling the subroutine, plus a few other
+    stuffs. See run() for more details.
 
-    This module uses Log::Any logging framework. Use something like
-    Log::Any::App, etc to see more logging statements for debugging.
+    This module uses Log::Any for logging.
 
     This module uses Moo for object system.
 
@@ -104,16 +103,16 @@ ATTRIBUTES
     Before run() runs the subroutines, it will call order_by_dependencies()
     to reorder the added subroutines according to dependency tree (the
     'sub_run' dependency clause). You can turn off this behavior by setting
-    this attribute to false.q
+    this attribute to false.
 
   undo => BOOL (default undef)
     If set to 0 or 1, then these things will happen: 1) Prior to running,
     all added subroutines will be checked and must have 'undo' or 'reverse'
     feature, or are 'pure' (see Sub::Spec::Clause::features for more details
-    on specifying features). 2) '-undo' and '-state' special argument will
-    be given with value 0/1 to each sub supporting undo (or '-reverse' 0/1
-    for subroutines supporting reverse). No special argument will be given
-    for pure subroutines.
+    on specifying features). 2) '-undo_action' and '-undo_data' special
+    argument will be given with value 0/1 to each sub supporting undo (or
+    '-reverse' 0/1 for subroutines supporting reverse). No special argument
+    will be given for pure subroutines.
 
     Additionally, if 'undo' is set to 1, then order_by_dependencies() will
     reverse the order of run. This will only be done if 'order_before_run'
@@ -124,6 +123,9 @@ ATTRIBUTES
     store undo information to enable undo in the future. Setting to 1 means
     undo. Setting to undef (the default) means disregard undo stuffs.
 
+  undo_data_dir => STRING (default ~/.subspec/.undo)
+    Location to put undo data. See save_undo_data() for more details.
+
   dry_run => BOOL (default 0)
     If set to 0 or 1, then these things will happen: 1) Prior to running,
     all added subroutines will be checked and must have 'dry_run' feature,
@@ -131,11 +133,6 @@ ATTRIBUTES
     specifying features). 2) '-dry_run' special argument will be given with
     value 0/1 to each sub supporting dry run. No special argument will be
     given for pure subroutines.
-
-  state => STATE OBJECT
-    Used to store state object, set by create_state_obj() when running under
-    undo mode. State object is used by subroutines to store undo
-    information.
 
 METHODS
   $runner->get_spec($subname) => SPEC
@@ -179,13 +176,7 @@ METHODS
 
     First it will check 'undo' attribute. If defined, then all added
     subroutines are required to have undo/reverse/pure feature or otherwise
-    run() will immediately return with error 412. After that state object
-    (Sub::Spec::Runner::State instance) will be created and 'state'
-    attribute will be set to this. Sub::Spec::Runner::State is a state
-    object which stores data in YAML files under ~/.subspec/.undo/, one per
-    subroutine. You can use your own state object by setting the 'state'
-    attribute before this. If 'state' attribute is already set, run() will
-    not overwrite it.
+    run() will immediately return with error 412.
 
     Then it will check 'dry_run' attribute. If true, then all added
     subroutines are required to have dry_run/pure feature or otherwise run()
@@ -201,13 +192,13 @@ METHODS
     Then it will call each subroutine successively. Each subroutine will be
     called with arguments specified in 'common_args' attribute and args
     specified in add(), with one extra special argument, '-runner' which is
-    the runner object. Prior to running a subroutine, pre_sub() will be
-    called. It must return true, or run() will immediately return with 500
-    error.
+    the runner object.
 
-    Runner will store the return value of each subroutine. Exception from
-    subroutine will be trapped by eval() and upon exception return value of
-    subroutine is assumed to be 500.
+    Before running a subroutine: pre_sub() will be called. It must return
+    true, or run() will immediately return with 500 error. If 'undo'
+    attribute is set to true, get_undo_data() will be called to get undo
+    data (see get_undo_data() for more details on customizing storage of
+    undo data).
 
     The subroutine being run can see the status/result of other subroutines
     by calling $runner->done($subname), $runner->result($subname). It can
@@ -217,8 +208,18 @@ METHODS
     $runner->jump(). See the respective method documentation for more
     details.
 
-    After running a subroutine, post_sub() will be called. It must return
-    true, or run() will immediately return with 500 error.
+    After running a subroutine: Runner will store the return value of each
+    subroutine. Exception from subroutine will be trapped by eval() and upon
+    exception return value of subroutine is assumed to be 500.
+
+    If subroutine runs successfully: if 'undo' attribute is defined and
+    false (meaning normal run but save undo information), save_undo_data()
+    will be called to save undo information (see save_undo_data() for more
+    details on customizing storage of undo data). If 'undo' attribute is
+    true, remove_undo_data() will be called to remove undo information.
+
+    After that, post_sub() will be called. It must return true, or run()
+    will immediately return with 500 error.
 
     If 'stop_on_sub_errors' attribute is set to true (the default), then if
     the subroutine returns a non-success result, run() will immediately exit
@@ -248,6 +249,21 @@ METHODS
 
   $runner->pre_sub() => BOOL
     See run() for more details. Can be overridden by subclass.
+
+  $runner->get_undo_data($subname, $args) => $undo_data
+    Get undo data. The default implementation loads from file (see
+    save_undo_data() for more details). You can override this method or just
+    set 'undo_data_dir' to the desired location.
+
+  $runner->save_undo_data($subname, $args, $undo_data)
+    Save undo data. The default implementation saves undo data in YAML file
+    under directory specified by 'undo_data_dir', one file per subname, the
+    file being named <subname>.yaml ("::" replaced with by "." because it is
+    not valid in some filesystems). You can override this method or just set
+    'undo_data_dir' to the desired location.
+
+  $runner->remove_undo_data($subname, $args)
+    Remove undo data.
 
   $runner->post_sub() => BOOL
     See run() for more details. Can be overridden by subclass.

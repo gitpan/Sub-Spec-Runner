@@ -12,12 +12,12 @@ my %module_build_args = (
   'configure_requires' => {
     'Module::Build' => '0.3601'
   },
-  'dist_abstract' => 'Run a subroutine',
+  'dist_abstract' => 'Run subroutines',
   'dist_author' => [
     'Steven Haryanto <stevenharyanto@gmail.com>'
   ],
   'dist_name' => 'Sub-Spec-Runner',
-  'dist_version' => '0.13',
+  'dist_version' => '0.14',
   'license' => 'perl',
   'module_name' => 'Sub::Spec::Runner',
   'recommends' => {},
@@ -25,7 +25,6 @@ my %module_build_args = (
   'requires' => {
     'Algorithm::Dependency' => '0',
     'Capture::Tiny' => '0',
-    'File::Path' => '2.08',
     'File::chdir' => '0',
     'Log::Any' => '0',
     'Moo' => '0',
