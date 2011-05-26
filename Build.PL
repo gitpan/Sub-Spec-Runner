@@ -17,7 +17,7 @@ my %module_build_args = (
     'Steven Haryanto <stevenharyanto@gmail.com>'
   ],
   'dist_name' => 'Sub-Spec-Runner',
-  'dist_version' => '0.14',
+  'dist_version' => '0.15',
   'license' => 'perl',
   'module_name' => 'Sub::Spec::Runner',
   'recommends' => {},
@@ -26,6 +26,7 @@ my %module_build_args = (
     'Algorithm::Dependency' => '0',
     'Capture::Tiny' => '0',
     'File::chdir' => '0',
+    'JSON' => '0',
     'Log::Any' => '0',
     'Moo' => '0',
     'Sub::Spec' => '0.08',

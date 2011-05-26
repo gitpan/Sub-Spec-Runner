@@ -49,6 +49,16 @@ sub e {
     [304, "OK", "eggplant"];
 }
 
+# for testing specifying dependency to sub with arg
+$SPEC{f} = {deps=>{all=>[
+    {run_sub=>['Foo::d', {alt=>0}]},
+    {run_sub=>['Foo::d', {alt=>1}]},]},
+};
+sub f {
+    print "F";
+    [200, "OK", "farkleberry"];
+}
+
 $SPEC{read_ctx} = {deps=>{run_sub=>"Foo::a"}};
 sub read_ctx {
     my %args=@_;
@@ -163,7 +173,7 @@ test_run(
     subs          => ['x'],
     test_before_run => sub {
         my ($runner) = @_;
-        $runner->_sub_list->[0] eq 'main::x';
+        $runner->_queue->[0]{subname} eq 'main::x';
     }
 );
 test_run(
@@ -171,14 +181,14 @@ test_run(
     subs          => ['::x'],
     test_before_run => sub {
         my ($runner) = @_;
-        $runner->_sub_list->[0] eq 'main::x';
+        $runner->_queue->[0]{subname} eq 'main::x';
     }
 );
 
 test_run(
     name          => 'no subs',
     subs          => [],
-    status        => 400,
+    status        => 412,
 );
 test_run(
     name          => 'single sub',
@@ -190,9 +200,12 @@ test_run(
     output_re     => qr/^EDCBA$/,
     test_after_run => sub {
         my ($runner) = @_;
-        is_deeply($runner->_find_dependants('Foo::c'),
+        my $items = [map {$_->{subname}}
+                         @{ $runner->_find_items_and_dependants('Foo::c') }];
+        is_deeply($items,
                   ['Foo::c', 'Foo::b', 'Foo::a'],
-                  "_find_dependants 1");
+                  "_find_items_and_dependants 1")
+            or diag explain $items;
         my $a = $runner->stash("a");
         ok(!$a, "stash default to undef");
         $a = $runner->stash("a", 1);
@@ -243,7 +256,7 @@ test_run(
     output_re     => qr/^EDCxBxAxy$/,
 );
 test_run(
-    name          => 'per-sub args (alt2 given to b due to no args spec)',
+    name          => 'per-sub args (alt2 given to b)',
     subs          => ['Foo::b'],
     common_args   => {alt=>1},
     sub_args      => [{alt2=>1}],
@@ -251,12 +264,12 @@ test_run(
     output_re     => qr/^EDCxBxy$/,
 );
 test_run(
-    name          => 'per-sub args (alt2 not given to c due to no arg spec)',
+    name          => 'per-sub args (alt2 given to c)',
     subs          => ['Foo::c'],
     common_args   => {alt=>1},
     sub_args      => [{alt2=>1}],
     status        => 200,
-    output_re     => qr/^EDCx$/,
+    output_re     => qr/^EDCxy$/,
 );
 
 test_run(
@@ -275,6 +288,21 @@ test_run(
     add_dies      => 1,
 );
 
+test_run(
+    name          => 'dep to sub + arg, allow_add_same_sub',
+    runner_args   => {allow_add_same_sub=>1},
+    subs          => ['Foo::f'],
+    status        => 200,
+    num_runs      => 4, num_success_runs => 4, num_failed_runs  => 0,
+
+    num_subs      => 3, num_success_subs => 3, num_failed_subs  => 0,
+    num_run_subs  => 3, num_skipped_subs => 0,
+
+    num_items     => 4, num_success_items => 4, num_failed_items => 0,
+    num_run_items => 4, num_skipped_items => 0,
+
+    output_re     => qr/^EDDxF$/,
+);
 test_run(
     name          => 'stop_on_sub_errors on',
     subs          => ['Foo::i'],
@@ -394,7 +422,7 @@ test_run(
 test_run(
     name          => 'skip in pre_sub',
     runner_args   => {_pre_sub=>sub {
-                          my($self, $subname) = @_;
+                          my($self, $subname, $args) = @_;
                           if ($subname eq 'Foo::c') {
                               $self->skip('Foo::a');
                               $self->skip(qr/[cb]/);
@@ -423,17 +451,6 @@ test_run(
     num_subs      => 5, num_success_subs => 3, num_failed_subs  => 0,
     num_run_subs  => 3, num_skipped_subs => 2,
 );
-# XXX test skip inside sub?
-test_run(
-    name          => 'skip(unknown) -> dies',
-    runner_args   => {_post_sub=>sub {
-                          my($self, $subname) = @_;
-                          $self->skip('Foo::a');
-                          1;
-                      }},
-    subs          => ['Foo::e'],
-    status        => 500,
-);
 
 test_run(
     name          => 'jump',
@@ -460,11 +477,11 @@ test_run(
 );
 
 test_run(
-    name          => 'branch_done',
+    name          => 'skip_branch()',
     runner_args   => {_pre_sub=>sub {
                           my($self, $subname) = @_;
                           if ($subname eq 'Foo::c') {
-                              $self->branch_done('Foo::c', 1);
+                              $self->skip_branch('Foo::c');
                           }
                           1;
                       }},
@@ -473,8 +490,24 @@ test_run(
     output_re     => qr/^ED$/,
 );
 
+my $once;
 test_run(
-    name          => 'result',
+    name          => 'repeat_branch()',
+    runner_args   => {_pre_sub=>sub {
+                          my($self, $subname, $args) = @_;
+                          if ($subname eq 'Foo::c' && !$once++) {
+                              $self->repeat_branch('Foo::e');
+                          }
+                          1;
+                      }},
+    subs          => ['Foo::a'],
+    status        => 200,
+    output_re     => qr/^EDCBAED$/,
+);
+goto DONE_TESTING;
+
+test_run(
+    name          => 'result()',
     subs          => ['Foo::d'],
     status        => 200,
     test_after_run => sub {
@@ -483,8 +516,20 @@ test_run(
                   "result(e)");
         is_deeply($runner->result('Foo::d'), [200, "OK", "date"],
                   "result(d)");
-        eval { $runner->result('Foo::xxx') };
-        ok($@, "result(unknown) -> dies");
+        #eval { $runner->result('Foo::xxx') };
+        #ok($@, "result(unknown) -> dies");
+    },
+);
+
+test_run(
+    name          => 'is_done()',
+    subs          => ['Foo::d'],
+    status        => 200,
+    test_after_run => sub {
+        my ($runner) = @_;
+        ok($runner->is_done('Foo::d'));
+        ok($runner->is_done('Foo::e'));
+        ok(!$runner->is_done('Foo::c'));
     },
 );
 
@@ -579,6 +624,8 @@ test_run(
     },
 );
 
+DONE_TESTING:
+
 if (Test::More->builder->is_passing) {
     diag "all tests successful, deleting undo data dir";
     $CWD = "/";
@@ -611,6 +658,8 @@ sub test_run {
             }
         };
         my $eval_err = $@;
+        diag "died during add(): $eval_err" if $eval_err;
+
         if ($args{add_dies}) {
             ok($eval_err, "add dies");
         }
@@ -626,6 +675,7 @@ sub test_run {
                 my ($stdout, $stderr) = capture {
                     $res = $runner->run();
                 };
+                #diag "stderr during run: $stderr" if $stderr;
                 like($stdout // "", $args{output_re}, "output_re")
                     or diag("output is $stdout");
             } else {
@@ -642,11 +692,18 @@ sub test_run {
                    num_success_runs
                    num_failed_runs
                    num_runs
+
                    num_success_subs
                    num_failed_subs
                    num_subs
                    num_run_subs
                    num_skipped_subs
+
+                   num_success_items
+                   num_failed_items
+                   num_items
+                   num_run_items
+                   num_skipped_items
            )) {
             if (defined $args{$_}) {
                 is($res->[2]{$_}, $args{$_}, $_);

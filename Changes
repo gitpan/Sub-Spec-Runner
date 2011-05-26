@@ -1,5 +1,41 @@
 Revision history for Sub::Spec::Runner
 
+0.15     2011-05-26
+
+         This release introduces a new feature: under a new flag attribute
+         'allow_add_same_sub', a single subroutine name can be add()-ed multiple
+         times, as long as the arguments differ. There are some incompatible
+         changes introduced as well, as a consequence.
+
+         [INCOMPATIBLE CHANGES]
+
+         * run() returns 412 instead of 400 when there are no items added.
+
+         * Argument list for done(), skip(), repeat(), jump(), pre_sub(),
+           post_sub() changes, due to extra argument $args when specifying
+           items.
+
+         * rename methods: todo_subs() -> todo_items() (and return hash data
+           instead of subname), done_subs() -> done_items() (ditto).
+
+         * branch_done() replaced by skip_branch() and repeat_branch().
+
+         [NEW FEATURES]
+
+         * New flag attribute 'allow_add_same_sub' to allow a single subroutine
+           name to be add()-ed multiple times as long as the arguments differ.
+
+         * 'run_sub' dep clause can accept [SUBNAME, ARGS] instead of just
+           SUBNAME.
+
+         [ENHANCEMENTS]
+
+         * run() now returns these keys also in data: num_items,
+           num_success_items, num_failed_items, num_skipped_items to
+           differentiate with num*subs and num*runs keys.
+
+         * add is_done()
+
 0.14     2011-05-16
 
          [INCOMPATIBLE CHANGES]

@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.14
+    version 0.15
 
 SYNOPSIS
     In YourModule.pm:
@@ -52,6 +52,16 @@ DESCRIPTION
 
     This module uses Moo for object system.
 
+    This module parses the 'run_sub' deps clause in Sub::Spec spec. It
+    allows specifying dependency of a subroutine to another subroutine. It
+    accept fully qualified subroutine name as value, or a 2-element array
+    containing the subroutine name and its arguments. The depended
+    subroutine will be add()-ed to the runner. Example:
+
+     run_sub => 'main::func2'
+
+     run_sub => ['My::Other::func', {arg1=>1, arg2=>2}]
+
 ATTRIBUTES
   common_args => HASHREF
     Arguments to pass to each subroutine. Note that each argument will only
@@ -99,6 +109,20 @@ ATTRIBUTES
     the next subroutine. Note that you can override what constitutes a
     success return value by overriding success_res().
 
+  allow_add_same_sub => BOOL (default 0)
+    If this attribute is set to 0 (the default), then if you add() the same
+    subroutine more than once, even with different argument, then the
+    subsequent add will be ignored. For example:
+
+     $runner->add('sub1', {arg1=>1}); # 'sub1' added
+     $runner->add('sub1', {arg1=>2}); # not added
+
+    If this attribute is set to 1, then you can add() the same subroutine
+    more than once but with different arguments.
+
+     $runner->add('sub1', {arg1=>1}); # 'sub1' added with args: {arg1=>1}
+     $runner->add('sub1', {arg1=>2}); # 'sub1' added again with args: {arg1=>2}
+
   order_before_run => BOOL (default 1)
     Before run() runs the subroutines, it will call order_by_dependencies()
     to reorder the added subroutines according to dependency tree (the
@@ -141,18 +165,24 @@ METHODS
     variables.
 
   $runner->add($subname[, $args])
-    Add subroutine to the set of subroutines to be run. Example:
+    Add subroutine to the queue of subroutines to be run. Example:
 
      $runner->add('Package::subname');
+     $runner->add('Package::anothersub', {arg=>1});
 
-    Will first get the sub spec by loading the module and read the %SPEC
-    package var (this behavior can be changed by overriding get_spec()).
-    Will not load modules if 'load_modules' attribute is false. Will die if
-    cannot get spec.
+    Will first load the module (unless load_modules attribute to false).
+    Then attempt to get the sub spec by reading the %SPEC package var (this
+    behavior can be changed by overriding get_spec()). Will die if cannot
+    get spec.
 
     After that, it will check dependencies (the 'deps' spec clause) and die
     if some dependencies are unmet. All subroutine names mentioned in
-    'run_sub' dependency clause will also be add()-ed automatically.
+    'run_sub' dependency clause will also be add()-ed automatically,
+    recursively.
+
+    If the same subroutine is added twice, then it will only be queued once,
+    unless allow_add_same_sub attribute is true, in which case duplicate
+    subroutine name can be added as long as the arguments are different.
 
   $runner->order_by_dependencies()
     Reorder set of subroutines by dependencies. Normally need not be called
@@ -163,16 +193,16 @@ METHODS
     Will return a true value on success, or false if dependencies cannot be
     resolved (e.g. there is circular dependency).
 
-  $runner->todo_subs() => ARRAYREF
-    Return the current list of subroutine names not yet runned, in order.
-    Previously run subroutines can belong to this list again if repeat()-ed.
+  $runner->todo_items() => ARRAYREF
+    Return the items in queue not yet run, in order. Previously run
+    subroutines can belong to this list again if repeat()-ed.
 
-  $runner->done_subs() => ARRAYREF
-    Return the current list of subroutine names already run, in order.
-    Never-run subroutines can belong to this list too if skip()-ed.
+  $runner->done_items() => ARRAYREF
+    Return the items in queue already run. Never-run subroutines can belong
+    to this list too if skip()-ed.
 
   $runner->run() => [STATUSCODE, ERRMSG, RESULT]
-    Run (call) a set of subroutines previously added by add().
+    Run (call) the queue of subroutines previously added by add().
 
     First it will check 'undo' attribute. If defined, then all added
     subroutines are required to have undo/reverse/pure feature or otherwise
@@ -189,10 +219,10 @@ METHODS
     After that, it will call pre_run(), which you can override. pre_run()
     must return true, or run() will immediately return with 412 error.
 
-    Then it will call each subroutine successively. Each subroutine will be
-    called with arguments specified in 'common_args' attribute and args
-    specified in add(), with one extra special argument, '-runner' which is
-    the runner object.
+    Then it will call each item in the queue successively. Each subroutine
+    will be called with arguments specified in 'common_args' attribute and
+    args specified in add(), with one extra special argument, '-runner'
+    which is the runner object.
 
     Before running a subroutine: pre_sub() will be called. It must return
     true, or run() will immediately return with 500 error. If 'undo'
@@ -247,7 +277,7 @@ METHODS
   $runner->pre_run() => BOOL
     See run() for more details. Can be overridden by subclass.
 
-  $runner->pre_sub() => BOOL
+  $runner->pre_sub($subname, $args) => BOOL
     See run() for more details. Can be overridden by subclass.
 
   $runner->get_undo_data($subname, $args) => $undo_data
@@ -265,47 +295,55 @@ METHODS
   $runner->remove_undo_data($subname, $args)
     Remove undo data.
 
-  $runner->post_sub() => BOOL
+  $runner->post_sub($subname, $args) => BOOL
     See run() for more details. Can be overridden by subclass.
 
   $runner->post_run() => BOOL
     See run() for more details. Can be overridden by subclass.
 
-  $runner->result(SUBNAME) => RESULT
+  $runner->result($subname[, $args]) => RESULT
     Return the result of run subroutine named SUBNAME. If subroutine is not
-    run yet, will return undef. Will die if subroutine is not in the list of
-    added subroutines.
+    run yet, will return undef.
 
-  $runner->done(SUBNAME[, VALUE]) => OLDVAL
+    If there are multiple items matching $subname, only the first item's
+    result will be returned.
+
+  $runner->is_done($subname[, $args]) => BOOL
+    Check whether an item is already run/done.
+
+  $runner->done(SUBNAME[, ARGS[, VALUE]]) => OLDVAL
     If VALUE is set, set a subroutine to be done/not done. Otherwise will
-    return the current done status of SUBNAME. Will die if subroutine named
-    SUBNAME is not in the list of added subs.
+    return the current done status of SUBNAME.
 
     SUBNAME can also be a regex, which means all subroutines matching the
     regex. The last SUBNAME's current done status will be returned.
 
-  $runner->skip(SUBNAME)
-    Alias for done(SUBNAME, 1).
+  $runner->skip(SUBNAME[, ARGS])
+    Alias for done(SUBNAME, ARGS, 1).
 
   $runner->skip_all()
-    Alias for skip(qr/.*/, 1).
+    Skip all subroutines.
 
-  $runner->repeat(SUBNAME)
-    Alias for done(SUBNAME, 0).
+  $runner->repeat(SUBNAME[, ARGS])
+    Alias for done(SUBNAME, ARGS, 0).
 
   $runner->repeat_all()
-    Alias for repeat(qr/.*/, 1).
+    Repeat all subroutines.
 
-  $runner->branch_done(SUBNAME, VALUE)
+  $runner->done_branch(SUBNAME, ARGS, VALUE)
     Just like done(), except that will set SUBNAME *and all its dependants*.
-    Example: if a depends on b and b depends on c, then doing branch_done(c,
-    1) will also set a & b as done.
+    Example: if a depends on b and b depends on c, then doing
+    branch_done('c', undef, 1) will also set a & b as done.
 
-    SUBNAME must be a string and not regex.
+  $runner->skip_branch(SUBNAME[, ARGS])
+    Alias for done_branch(SUBNAME, ARGS, 1).
 
-  $runner->jump($subname)
-    Jump to another subname. Can be called in pre_sub() or inside subroutine
-    or post_sub().
+  $runner->repeat_branch(SUBNAME[, ARGS])
+    Alias for done_branch(SUBNAME, ARGS, 0).
+
+  $runner->jump($subname, $args)
+    Jump to another item. Can be called in pre_sub() or inside subroutine or
+    post_sub().
 
   $runner->stash(NAME[, VALUE]) => OLDVAL
     Get/set stash data. This is a generic place to share data between

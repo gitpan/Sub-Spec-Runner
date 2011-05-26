@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.14';
+  $Sub::Spec::Runner::VERSION = '0.15';
 }
 # ABSTRACT: Run subroutines
 
@@ -9,22 +9,28 @@ use strict;
 use warnings;
 use Log::Any '$log';
 
+use JSON;
 use Moo;
 use Sub::Spec::Utils; # temp, for _parse_schema
 use YAML::Syck;
 
+my $json = JSON->new->allow_nonref;
 
-# {SUBNAME => {done=>BOOL, spec=>SPEC, fldeps=>FLATTENED_DEPS, ...}, ...}
-has _sub_data  => (is => 'rw', default=>sub{{}});
 
-# [SUBNAME, ...], the list of subroutine names in the order of execution
-has _sub_list  => (is => 'rw', default=>sub{[]});
+# [subname=>..., args=>..., key=>..., done=>1|0, spec=>SPEC,
+# fldeps=>FLATTENED_DEPS, ...}, ...], the list of subroutines to run, with their
+# data and status. key is either SUBNAME or SUBNAME|json(ARGS) (if
+# allow_add_same_sub is true)
+has _queue  => (is => 'rw', default=>sub{[]});
+
+# index to _queue, the current running subroutine
+has _i         => (is => 'rw');
+
+# {key=>item}, i is item in _queue, this is a way to lookup queue by key
+has _queue_idx  => (is => 'rw', default=>sub{{}});
 
 # for subroutines to share data
 has _stash     => (is => 'rw', default=>sub{{}});
-
-# index to _sub_list, the current running subroutine
-has _i         => (is => 'rw');
 
 # shorter way to insert custom code rather than subclassing
 has _pre_run   => (is => 'rw');
@@ -41,6 +47,9 @@ has load_modules => (is => 'rw', default=>sub{1});
 
 
 has stop_on_sub_errors => (is => 'rw', default=>sub{1});
+
+
+has allow_add_same_sub => (is => 'rw', default=>sub{0});
 
 
 has order_before_run => (is => 'rw', default=>sub{1});
@@ -75,20 +84,23 @@ sub __parse_schema {
 # deps clause:
 #
 #  {
-#   sub => 's1',
+#   run_sub => 's1',
 #   all => [
-#     {sub => 's1'},
+#     {run_sub => 's1'},
 #     {deb => {d1=>0, d2=>'>= 0', d3=>'= 1'},
-#     {and => [{sub => 's2'}, {sub=>'s3'}, {deb=>{d3=>0}}],
+#     {and => [{run_sub => ['s2',{arg=>1}]}, {run_sub=>'s3'}, {deb=>{d3=>0}}],
 #   ],
 #  },
 #
 # into:
 #
 #  {
-#   sub => ['s1', 's2', 's3'], # also uniquify sub names
-#   deb => [{d1],
+#   run_sub => ['s1', ['s2'=>{arg=>1}], 's3'],
+#   deb => [{d1=>0, d2=>'>= 0', d3=>'= 1'}, {d3=>'0'}],
 #  }
+#
+# clause values will be uniquified in the process (in the above example,
+# run_sub=>'s1' was listed twice but flattened into one).
 #
 # dies if 'any' or 'none' clauses are encountered.
 sub __flatten_deps {
@@ -101,11 +113,47 @@ sub __flatten_deps {
             __flatten_deps($_, $res) for @$v;
         } else {
             $res->{$k} //= [];
-            next if $k eq 'sub' && $v ~~ @{ $res->{$k} };
-            push @{ $res->{$k} }, $v;
+            __add_nodupe($res->{$k}, $v);
         }
     }
     $res;
+}
+
+sub __add_nodupe {
+    my ($ary, $v) = @_;
+    for (@$ary) {
+        return if __cmp($_, $v);
+    }
+    push @$ary, $v;
+}
+
+# compare like ruby's == (deep)
+sub __cmp {
+    my ($a, $b) = @_;
+    return 1 if !defined($a) && !defined($b);
+    return 0 if  defined($a) xor defined($b);
+    return $a eq $b if !ref($a) && !ref($b);
+    return 0 if ref($a) xor ref($b);
+    $json->encode($a) eq $json->encode($b);
+}
+
+sub __item_key {
+    my ($subname, $args) = @_;
+    return $subname . "|" . $json->encode($args);
+}
+
+sub _queue_key {
+    my ($self, $subname, $args) = @_;
+    if ($self->allow_add_same_sub) {
+        return __item_key($subname, $args);
+    } else {
+        return $subname;
+    }
+}
+
+sub _find_in_queue {
+    my ($self, $subname, $args) = @_;
+
 }
 
 # add main:: if unqualified
@@ -133,10 +181,13 @@ sub add {
 
     my ($self, $subname, $args) = @_;
     $subname = __normalize_subname($subname);
+    my $key = $self->_queue_key($subname, $args);
 
-    return if exists $self->_sub_data->{$subname};
-    $log->tracef('-> add(%s)', $subname);
-    $self->_sub_data->{$subname} = undef; # to avoid deep recursion on circular
+    # to avoid deep recursion on circular
+    return if exists $self->_queue_idx->{$key};
+    $self->_queue_idx->{$key} = undef;
+
+    $log->tracef('-> add(%s, %s)', $subname, $args);
 
     # load module
     my ($module, $sub);
@@ -156,22 +207,22 @@ sub add {
     my $fldeps = {};
     if ($spec->{deps}) {
         __flatten_deps($spec->{deps}, $fldeps);
-        $log->tracef("fldeps for $subname = %s", $fldeps);
-        $log->tracef("Checking dependencies ...");
+        $log->tracef("fldeps = %s", $fldeps);
+        #$log->tracef("Checking dependencies ...");
         local $current_runner = $self;
         my $res = Sub::Spec::Clause::deps::check($spec->{deps});
         die "Unmet dependencies for sub $subname: $res\n" if $res;
     }
 
-    my $subdata = {
-        name      => $subname,
+    my $item = {
+        key       => $key,
+        subname   => $subname,
+        args      => $args,
         spec      => $spec,
         fldeps    => $fldeps,
-        args      => $args,
     };
-    $self->_sub_data->{$subname} = $subdata;
-    push @{ $self->_sub_list }, $subname;
-
+    push @{ $self->_queue }, $item;
+    $self->_queue_idx->{$key} = $item;
     $log->trace("<- add()");
 }
 
@@ -183,12 +234,23 @@ sub order_by_dependencies {
 
     my ($self) = @_;
     my %deps;
-    while (my ($sn, $sd) = each %{$self->{_sub_data}}) {
-        $deps{$sn} //= [];
-        my $sub_deps = $sd->{fldeps}{run_sub};
-        push @{ $deps{$sn} }, @$sub_deps if $sub_deps;
+    for my $item (@{ $self->_queue }) {
+        $deps{$item->{key}} //= [];
+        my $run_sub_deps = $item->{fldeps}{run_sub};
+        if ($run_sub_deps) {
+            for my $d (@$run_sub_deps) {
+                my $key;
+                if (ref($d)) {
+                    $key = $self->_queue_key($d->[0], $d->[1]);
+                } else {
+                    $key = $self->_queue_key($d, undef);
+                }
+                push @{ $deps{$item->{key}} }, $key;
+            }
+        }
     }
 
+    #$log->tracef("deps for Algorithm::Dependency: %s", \%deps);
     my $ds  = Algorithm::Dependency::Source::HoA->new(\%deps);
     my $ado = Algorithm::Dependency::Ordered->new(
         source   => $ds,
@@ -199,8 +261,8 @@ sub order_by_dependencies {
         return 0;
     }
 
-    my $subs = $ado->schedule_all;
-    unless (ref($subs) eq 'ARRAY') {
+    my $keys = $ado->schedule_all;
+    unless (ref($keys) eq 'ARRAY') {
         $log->error("schedule_all() failed");
         return 0;
     }
@@ -208,43 +270,54 @@ sub order_by_dependencies {
     if ($self->undo) {
         $log->trace("Reversing order of subroutines because ".
                         "we are running in undo mode");
-        $subs = [reverse @$subs];
+        $keys = [reverse @$keys];
     }
 
-    $self->_sub_list($subs);
+    $log->tracef("result after ordering by dependency: %s", $keys);
+
+    # rebuild _queue
+    $self->_queue([]);
+    for (@$keys) {
+        push @{$self->_queue}, $self->_queue_idx->{$_};
+    }
+
     1;
 }
 
 
-sub todo_subs {
+sub todo_items {
     my ($self) = @_;
-    [ grep {!$self->_sub_data->{done}} @{$self->_sub_list} ];
+    [ grep {!$_->{done}} @{$self->_queue} ];
 }
 
 
-sub done_subs {
+sub done_items {
     my ($self) = @_;
-    [ grep {$self->_sub_data->{done}} @{$self->_sub_list} ];
+    [ grep {$_->{done}} @{$self->_queue} ];
 }
 
 sub _log_running_sub {
-    my ($self, $subname) = @_;
-    $log->infof("Running %s ...", $self->format_subname($subname));
+    my ($self, $subname, $args) = @_;
+    $log->infof("Running %s(%s) ...", $self->format_subname($subname), $args);
 }
 
 
 sub run {
     my ($self) = @_;
-    $log->tracef("-> run()");
+    $log->tracef("-> Runner's run()");
 
-    return [400, "No subroutines to run, please add() some first"]
-        unless @{ $self->_sub_list };
+    return [412, "No items to run, please add() some first"]
+        unless @{ $self->_queue };
 
+    my %mem;
     if (defined $self->undo) {
         $log->trace("Checking undo/reverse feature of subroutines ...");
-        while (my ($sn, $sd) = each %{$self->{_sub_data}}) {
-            my $f = $sd->{spec}{features};
-            return [412, "Cannot run with undo: $sn doesn't support ".
+        %mem = ();
+        for my $item (@{$self->_queue}) {
+            my $subname = $item->{subname};
+            next if $mem{$subname};
+            my $f = $item->{spec}{features};
+            return [412, "Cannot run with undo: $subname doesn't support ".
                         "undo/reverse/pure"]
                 unless $f && ($f->{undo} || $f->{reverse} || $f->{pure});
         }
@@ -252,9 +325,12 @@ sub run {
 
     if ($self->dry_run) {
         $log->trace("Checking dry_run feature of subroutines ...");
-        while (my ($sn, $sd) = each %{$self->{_sub_data}}) {
-            my $f = $sd->{spec}{features};
-            return [412, "Cannot run with dry_run: $sn doesn't support ".
+        %mem = ();
+        for my $item (@{$self->_queue}) {
+            my $subname = $item->{subname};
+            next if $mem{$subname};
+            my $f = $item->{spec}{features};
+            return [412, "Cannot run with dry_run: $subname doesn't support ".
                         "dry_run"]
                 unless $f && ($f->{dry_run} || $f->{pure});
         }
@@ -275,6 +351,9 @@ sub run {
     my $num_failed_runs  = 0;
     my %success_subs;
     my %failed_subs;
+    my %subs = map {$_->{subname}=>1} @{$self->_queue};
+    my %success_items;
+    my %failed_items;
     my $res;
 
     my $use_last_res_status;
@@ -286,67 +365,72 @@ sub run {
         while (1) {
             $self->{_i}++ unless $jumped;
             $jumped = 0;
-            last unless $self->{_i} < @{ $self->_sub_list };
-            my $subname = $self->_sub_list->[ $self->{_i} ];
-            my $sd      = $self->_sub_data->{$subname};
-            next if $sd->{done};
-            my $spec    = $sd->{spec};
+            last unless $self->{_i} < @{ $self->_queue };
+            my $item    = $self->_queue->[ $self->{_i} ];
+            next if $item->{done};
+            my $subname = $item->{subname};
+            my $spec    = $item->{spec};
+            my $args    = $item->{args};
 
             $some_not_done++;
-            $self->_log_running_sub($subname);
+            $self->_log_running_sub($subname, $args);
 
             my $orig_i = $self->{_i};
-            eval { $hook_res = $self->pre_sub($subname) };
+            eval { $hook_res = $self->pre_sub($subname, $args) };
             if ($@) {
-                $res = [500, "pre_sub(%s) died: $@"];
+                $res = [500, "pre_sub() died: $@"];
                 $use_last_res_status++;
                 last RUN;
             }
             unless ($hook_res) {
-                $res = [500, "pre_sub(%s) didn't return true"];
+                $res = [500, "pre_sub() didn't return true"];
                 $use_last_res_status++;
                 last RUN;
             }
-            next if $sd->{done}; # pre_sub might skip this sub
+            next if $item->{done}; # pre_sub might skip this sub
             $jumped = $orig_i != $self->{_i};
 
             if ($jumped) {
-                last unless $self->{_i} < @{ $self->_sub_list };
+                last unless $self->{_i} < @{ $self->_queue };
             }
 
             $orig_i = $self->{_i};
-            $res = $self->_run_sub($subname, $sd->{args});
+            $res = $self->_run_item($item);
             if ($spec->{result_naked}) { $res = [200, "OK (naked)", $res] }
-            $sd->{res} = $res;
+            $item->{res} = $res;
             if ($self->success_res($res)) {
                 $num_success_runs++;
                 $success_subs{$subname}++;
+                $success_items{$self->{_i}}++;
                 delete ($failed_subs{$subname});
+                delete ($failed_items{$self->{_i}});
             } else {
                 $num_failed_runs++;
                 $failed_subs{$subname}++;
+                $failed_items{$self->{_i}}++;
                 delete ($success_subs{$subname});
+                delete ($success_items{$self->{_i}});
                 if ($self->stop_on_sub_errors) {
                     $use_last_res_status++;
                     last RUN;
                 }
             }
-            $self->done($subname, 1);
+            $item->{done} = 1;
             $jumped = $orig_i != $self->{_i};
 
             if ($jumped) {
-                last unless $self->{_i} < @{ $self->_sub_list };
+                last unless $self->{_i} < @{ $self->_queue };
             }
 
             $orig_i = $self->{_i};
-            eval { $hook_res = $self->post_sub($subname) };
+            eval { $hook_res = $self->post_sub($subname, $args) };
             if ($@) {
-                $res = [500, "post_sub(%s) died: $@"];
+                $res = [500, "post_sub() died: $@"];
                 $use_last_res_status++;
                 last RUN;
             }
             unless ($hook_res) {
-                $res = [500, "post_sub(%s) didn't return true"];
+                $res = [500, "post_sub() didn't return true"];
                 $use_last_res_status++;
                 last RUN;
             }
@@ -365,9 +449,12 @@ sub run {
         $use_last_res_status = 1;
     }
 
-    my $num_subs         = scalar(@{$self->_sub_list});
-    my $num_success_subs = scalar(keys %success_subs);
-    my $num_failed_subs  = scalar(keys %failed_subs );
+    my $num_items         = scalar(@{$self->_queue});
+    my $num_subs          = scalar(keys %subs);
+    my $num_success_subs  = scalar(keys %success_subs );
+    my $num_failed_subs   = scalar(keys %failed_subs  );
+    my $num_success_items = scalar(keys %success_items);
+    my $num_failed_items  = scalar(keys %failed_items );
     unless ($use_last_res_status) {
         $res = [];
     }
@@ -375,15 +462,25 @@ sub run {
         num_success_runs   => $num_success_runs,
         num_failed_runs    => $num_failed_runs,
         num_runs           => $num_success_runs+$num_failed_runs,
+
         num_success_subs   => $num_success_subs,
         num_failed_subs    => $num_failed_subs,
         num_subs           => $num_subs,
         num_run_subs       => $num_success_subs+$num_failed_subs,
-        num_skipped_subs   => $num_subs - ($num_success_subs+$num_failed_subs),
+        num_skipped_subs   => $num_subs-($num_success_subs+$num_failed_subs),
+
+        num_success_items  => $num_success_items,
+        num_failed_items   => $num_failed_items,
+        num_items          => $num_items,
+        num_run_items      => $num_success_items+$num_failed_items,
+        num_skipped_items  => $num_items-($num_success_items+$num_failed_items),
     };
     unless ($use_last_res_status) {
-        if ($num_success_subs) {
-            if ($num_failed_subs) {
+        if ($num_success_items + $num_failed_items == 0) {
+            $res->[0] = 200;
+            $res->[1] = "All skipped";
+        } elsif ($num_success_items) {
+            if ($num_failed_items) {
                 $res->[0] = 200;
                 $res->[1] = "Some failed";
             } else {
@@ -395,13 +492,14 @@ sub run {
             $res->[1] = "All failed";
         }
     }
-    $log->tracef("<- run(), res=%s", $res);
+    $log->tracef("<- Runner's run(), res=%s", $res);
     $res;
 }
 
-sub _run_sub {
-    my ($self, $subname, $args) = @_;
-    $log->tracef("-> _run_sub(%s)", $subname);
+sub _run_item {
+    my ($self, $item) = @_;
+    my $subname = $item->{subname};
+    $log->tracef("-> _run_item(subname=%s, args=%s)", $subname, $item->{args});
     my $res;
     eval {
         my ($module, $sub) = $subname =~ /(.+)::(.+)/;
@@ -411,19 +509,16 @@ sub _run_sub {
             return; # exit eval
         }
 
-        my $sd = $self->_sub_data->{$subname};
-        my $spec = $sd->{spec};
+        my $spec = $item->{spec};
 
         my %all_args;
         my $common_args = $self->common_args // {};
         for (keys %$common_args) {
-            $all_args{$_} = $common_args->{$_} if !$sd->{spec}{args} ||
-                $sd->{spec}{args}{$_};
+            $all_args{$_} = $common_args->{$_} if !$spec->{args} ||
+                $spec->{args}{$_};
         }
-        $args //= {};
-        for (keys %$args) {
-            $all_args{$_} = $args->{$_} if !$sd->{spec}{args} ||
-                $sd->{spec}{args}{$_};
+        for (keys %{$item->{args} // {}}) {
+            $all_args{$_} = $item->{args}{$_};
         }
         my $args_for_undo = {%all_args};
         if (defined $self->undo) {
@@ -434,7 +529,8 @@ sub _run_sub {
             } elsif ($spec->{features}{undo}) {
                 $all_args{-undo_action} = $self->undo ? 'undo':'do';
                 if ($self->undo) {
-                    my $undo_data = $self->get_undo_data($subname, $args_for_undo);
+                    my $undo_data = $self->get_undo_data(
+                        $subname, $args_for_undo);
                     if (!$undo_data) {
                         $res = [304, "skipped: nothing to undo"];
                         return;
@@ -575,103 +671,161 @@ sub post_run {
     !$self->_post_run || $self->_post_run->($self, @_);
 }
 
-
-sub result {
-    my ($self, $subname) = @_;
-    $subname = __normalize_subname($subname);
-    die "$subname is not in the list of added subroutines\n"
-        unless $self->_sub_data->{$subname};
-    $self->_sub_data->{$subname}{res};
-}
-
-
-sub done {
-    my ($self, $subname0, $newval) = @_;
-
-    my @subnames;
-    if (ref($subname0) eq 'Regexp') {
-        @subnames = grep {/$subname0/} @{$self->_sub_list};
-    } else {
-        push @subnames, __normalize_subname($subname0);
+sub _find_items {
+    my $self = shift;
+    #$log->tracef("=> _find_items(%s)", \@_);
+    my $subname = shift;
+    my $has_args;
+    my $args;
+    if (@_) {
+        $has_args++;
+        $args = shift;
     }
 
-    my $oldval;
-    for my $subname (@subnames) {
-        unless ($self->_sub_data->{$subname}) {
-            die "$subname is not in the list of added subroutines\n";
-        }
+    $subname = __normalize_subname($subname) unless ref($subname);
 
-        $oldval = $self->_sub_data->{$subname}{done};
-        if (defined($newval)) {
-            $self->_sub_data->{$subname}{done} = $newval;
+    my @res;
+    for my $item (@{$self->_queue}) {
+        if (ref($subname) eq 'Regexp') {
+            next unless $item->{subname} =~ /$subname/;
+        } else {
+            next unless $item->{subname} eq $subname;
         }
+        if ($has_args) {
+            next unless __cmp($item->{args}, $args);
+        }
+        push @res, $item;
     }
-    $oldval;
+    @res;
 }
 
-
-sub skip {
-    my ($self, $subname) = @_;
-    $self->done($subname, 1);
-}
-
-
-sub skip_all {
-    my ($self) = @_;
-    $self->done(qr/.*/, 1);
-}
-
-
-sub repeat {
-    my ($self, $subname) = @_;
-    $self->done($subname, 0);
-}
-
-
-sub repeat_all {
-    my ($self) = @_;
-    $self->done(qr/.*/, 1);
-}
-
-# return subname and all others which directly/indirectly depends on it
-sub _find_dependants {
-    my ($self, $subname, $res) = @_;
-    $res //= [$subname];
-    my $sd = $self->_sub_data;
-    for (keys %$sd) {
-        next if $_ ~~ @$res;
-        if ($subname ~~ @{ $sd->{$_}{fldeps}{run_sub} // [] }) {
-            push @$res, $_;
-            $self->_find_dependants($_, $res);
+sub _find_items_and_dependants {
+    my ($self, $subname, $args, $res) = @_;
+    $log->tracef("=> _find_items_and_dependants(%s)", \@_);
+    if (!$res) {
+        my @items = $self->_find_items($subname, $args);
+        $res = \@items;
+    }
+    my %res_keys     = map {__item_key($_->{subname}, $_->{args})=>1} @$res;
+    my %res_subnames = map {$_->{subname}=>1} @$res;
+    #my %spec_mem;
+    for my $qitem (@{$self->_queue}) {
+        my $qkey = __item_key($qitem->{subname}, $qitem->{args});
+        #next if $spec_mem{$qitem->{subname}}++;
+        next if $res_keys{$qkey};  # qitem already in $res
+        my $run_sub_deps = $qitem->{fldeps}{run_sub};
+        next unless $run_sub_deps;
+        for my $d (@$run_sub_deps) {
+            #$log->tracef("dep: %s", $d);
+            my $dkey;
+            if (ref($d)) {
+                $dkey = __item_key($d->[0], $d->[1]);
+                next unless $res_keys{$dkey};
+                push @$res, $qitem;
+                $self->_find_items_and_dependants($d->[0], $d->[1], $res);
+            } else {
+                next unless $res_subnames{$d};
+                push @$res, $qitem;
+                $self->_find_items_and_dependants($d, undef, $res);
+                $dkey = __item_key($d, undef);
+            }
+            $res_keys{$dkey}++;
+            $res_subnames{$d}++;
         }
     }
     $res;
 }
 
 
-sub branch_done {
-    my ($self, $subname, $newval) = @_;
-    $subname = __normalize_subname($subname);
-    unless ($self->_sub_data->{$subname}) {
-        die "$subname is not in the list of added subroutines";
-        return;
+sub result {
+    my ($self, $subname, $args) = @_;
+    my @items = $self->_find_items($subname, $args);
+    return unless @items;
+    $items[0]->{res};
+}
+
+
+sub is_done {
+    my ($self, $subname, $args) = @_;
+    my @items = $self->_find_items($subname, $args);
+    return unless @items;
+    $items[0]->{done};
+}
+
+
+sub done {
+    my ($self, $subname, $args, $newval) = @_;
+    my @items = $self->_find_items($subname, $args);
+    return unless @items;
+    if (defined $newval) {
+        for (@items) {
+            $log->tracef("%s %s(%s)", $newval ? "Skipping":"Repeating",
+                    $_->{subname}, $_->{args});
+            $_->{done} = $newval;
+        }
     }
-    my $sn = $self->_find_dependants($subname);
-    for (@$sn) {
-        $self->_sub_data->{$_}{done} = $newval;
+    $items[-1]->{done};
+}
+
+
+sub skip {
+    my ($self, $subname, $args) = @_;
+    $self->done($subname, $args, 1);
+}
+
+
+sub skip_all {
+    my ($self) = @_;
+    $_->{done} = 1 for @{$self->_queue};
+}
+
+
+sub repeat {
+    my ($self, $subname, $args) = @_;
+    $self->done($subname, $args, 0);
+}
+
+
+sub repeat_all {
+    my ($self) = @_;
+    $_->{done} = 0 for @{$self->_queue};
+}
+
+
+sub done_branch {
+    my ($self, $subname, $args, $newval) = @_;
+    my $items = $self->_find_items_and_dependants($subname, $args);
+    $log->debugf("items = %s", $items);
+    return unless @$items;
+    if (defined $newval) {
+        for (@$items) {
+            $log->tracef("%s %s(%s)", $newval ? "Skipping":"Repeating",
+                    $_->{subname}, $_->{args});
+            $_->{done} = $newval;
+        }
     }
 }
 
 
+sub skip_branch {
+    my ($self, $subname, $args) = @_;
+    $self->done_branch($subname, $args, 1);
+}
+
+
+sub repeat_branch {
+    my ($self, $subname, $args) = @_;
+    $self->done_branch($subname, $args, 0);
+}
+
+
 sub jump {
-    my ($self, $subname) = @_;
-    $subname = __normalize_subname($subname);
-    unless ($self->_sub_data->{$subname}) {
-        die "$subname is not in the list of added subroutines\n";
-    }
-    my $sl = $self->_sub_list;
-    for my $i (0..@$sl-1) {
-        if ($sl->[$i] eq $subname) {
+    my ($self, $subname, $args) = @_;
+    my @items = $self->_find_items($subname, $args);
+    die "Can't jump($subname, args), item not found" unless @items;
+    my $item = $items[0];
+    for my $i (0..@{$self->_queue}-1) {
+        if ($item->{key} eq $self->_queue->[$i]{key}) {
             $self->_i($i);
             last;
         }
@@ -690,14 +844,24 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.14';
+  $Sub::Spec::Clause::deps::VERSION = '0.15';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
 
 sub check_run_sub {
     my ($cval) = @_;
-    $Sub::Spec::Runner::current_runner->add($cval);
+    my $runner = $Sub::Spec::Runner::current_runner;
+    if (!ref($cval)) {
+        $runner->add($cval);
+    } elsif (ref($cval) eq 'ARRAY') {
+        die "Deps clause usage: run_sub=>[SUBNAME,ARGS]" unless
+            !ref($cval->[0]) &&
+                (!defined($cval->[1]) || ref($cval->[1]) eq 'HASH');
+        $runner->add($cval->[0], $cval->[1]);
+    } else {
+        die "Deps clause usage: run_sub=>SUBNAME, or run_sub=>[SUBNAME,ARGS]";
+    }
     "";
 }
 
@@ -712,7 +876,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.14
+version 0.15
 
 =head1 SYNOPSIS
 
@@ -764,6 +928,16 @@ This module uses L<Log::Any> for logging.
 
 This module uses L<Moo> for object system.
 
+This module parses the 'run_sub' deps clause in L<Sub::Spec> spec. It allows
+specifying dependency of a subroutine to another subroutine. It accept fully
+qualified subroutine name as value, or a 2-element array containing the
+subroutine name and its arguments. The depended subroutine will be add()-ed to
+the runner. Example:
+
+ run_sub => 'main::func2'
+
+ run_sub => ['My::Other::func', {arg1=>1, arg2=>2}]
+
 =head1 ATTRIBUTES
 
 =head2 common_args => HASHREF
@@ -814,6 +988,21 @@ subroutine stops the whole run. If turned off, run() will continue to the next
 subroutine. Note that you can override what constitutes a success return value
 by overriding success_res().
 
+=head2 allow_add_same_sub => BOOL (default 0)
+
+If this attribute is set to 0 (the default), then if you add() the same
+subroutine more than once, even with different argument, then the subsequent add
+will be ignored. For example:
+
+ $runner->add('sub1', {arg1=>1}); # 'sub1' added
+ $runner->add('sub1', {arg1=>2}); # not added
+
+If this attribute is set to 1, then you can add() the same subroutine more than
+once but with different arguments.
+
+ $runner->add('sub1', {arg1=>1}); # 'sub1' added with args: {arg1=>1}
+ $runner->add('sub1', {arg1=>2}); # 'sub1' added again with args: {arg1=>2}
+
 =head2 order_before_run => BOOL (default 1)
 
 Before run() runs the subroutines, it will call order_by_dependencies() to
@@ -860,17 +1049,22 @@ provide your own specs other than from %SPECS package variables.
 
 =head2 $runner->add($subname[, $args])
 
-Add subroutine to the set of subroutines to be run. Example:
+Add subroutine to the queue of subroutines to be run. Example:
 
  $runner->add('Package::subname');
+ $runner->add('Package::anothersub', {arg=>1});
 
-Will first get the sub spec by loading the module and read the %SPEC package var
-(this behavior can be changed by overriding get_spec()). Will not load modules
-if 'load_modules' attribute is false. Will die if cannot get spec.
+Will first load the module (unless load_modules attribute to false). Then
+attempt to get the sub spec by reading the %SPEC package var (this behavior can
+be changed by overriding get_spec()). Will die if cannot get spec.
 
 After that, it will check dependencies (the 'deps' spec clause) and die if some
 dependencies are unmet. All subroutine names mentioned in 'run_sub' dependency
-clause will also be add()-ed automatically.
+clause will also be add()-ed automatically, recursively.
+
+If the same subroutine is added twice, then it will only be queued once, unless
+allow_add_same_sub attribute is true, in which case duplicate subroutine name
+can be added as long as the arguments are different.
 
 =head2 $runner->order_by_dependencies()
 
@@ -882,19 +1076,19 @@ you want ordering.
 Will return a true value on success, or false if dependencies cannot be resolved
 (e.g. there is circular dependency).
 
-=head2 $runner->todo_subs() => ARRAYREF
+=head2 $runner->todo_items() => ARRAYREF
 
-Return the current list of subroutine names not yet runned, in order. Previously
-run subroutines can belong to this list again if repeat()-ed.
+Return the items in queue not yet run, in order. Previously run subroutines
+can belong to this list again if repeat()-ed.
 
-=head2 $runner->done_subs() => ARRAYREF
+=head2 $runner->done_items() => ARRAYREF
 
-Return the current list of subroutine names already run, in order. Never-run
-subroutines can belong to this list too if skip()-ed.
+Return the items in queue already run. Never-run subroutines can belong to this
+list too if skip()-ed.
 
 =head2 $runner->run() => [STATUSCODE, ERRMSG, RESULT]
 
-Run (call) a set of subroutines previously added by add().
+Run (call) the queue of subroutines previously added by add().
 
 First it will check 'undo' attribute. If defined, then all added subroutines are
 required to have undo/reverse/pure feature or otherwise run() will immediately
@@ -911,9 +1105,9 @@ according to dependency order. This can be turned off via setting
 After that, it will call pre_run(), which you can override. pre_run() must
 return true, or run() will immediately return with 412 error.
 
-Then it will call each subroutine successively. Each subroutine will be called
-with arguments specified in 'common_args' attribute and args specified in add(),
-with one extra special argument, '-runner' which is the runner object.
+Then it will call each item in the queue successively. Each subroutine will be
+called with arguments specified in 'common_args' attribute and args specified in
+add(), with one extra special argument, '-runner' which is the runner object.
 
 Before running a subroutine: pre_sub() will be called. It must return true, or
 run() will immediately return with 500 error. If 'undo' attribute is set to
@@ -967,7 +1161,7 @@ override this.
 
 See run() for more details. Can be overridden by subclass.
 
-=head2 $runner->pre_sub() => BOOL
+=head2 $runner->pre_sub($subname, $args) => BOOL
 
 See run() for more details. Can be overridden by subclass.
 
@@ -989,7 +1183,7 @@ desired location.
 
 Remove undo data.
 
-=head2 $runner->post_sub() => BOOL
+=head2 $runner->post_sub($subname, $args) => BOOL
 
 See run() for more details. Can be overridden by subclass.
 
@@ -997,48 +1191,59 @@ See run() for more details. Can be overridden by subclass.
 
 See run() for more details. Can be overridden by subclass.
 
-=head2 $runner->result(SUBNAME) => RESULT
+=head2 $runner->result($subname[, $args]) => RESULT
 
 Return the result of run subroutine named SUBNAME. If subroutine is not run yet,
-will return undef. Will die if subroutine is not in the list of added
-subroutines.
+will return undef.
 
-=head2 $runner->done(SUBNAME[, VALUE]) => OLDVAL
+If there are multiple items matching $subname, only the first item's result will
+be returned.
+
+=head2 $runner->is_done($subname[, $args]) => BOOL
+
+Check whether an item is already run/done.
+
+=head2 $runner->done(SUBNAME[, ARGS[, VALUE]]) => OLDVAL
 
 If VALUE is set, set a subroutine to be done/not done. Otherwise will return the
-current done status of SUBNAME. Will die if subroutine named SUBNAME is not in
-the list of added subs.
+current done status of SUBNAME.
 
 SUBNAME can also be a regex, which means all subroutines matching the regex. The
 last SUBNAME's current done status will be returned.
 
-=head2 $runner->skip(SUBNAME)
+=head2 $runner->skip(SUBNAME[, ARGS])
 
-Alias for done(SUBNAME, 1).
+Alias for done(SUBNAME, ARGS, 1).
 
 =head2 $runner->skip_all()
 
-Alias for skip(qr/.*/, 1).
+Skip all subroutines.
 
-=head2 $runner->repeat(SUBNAME)
+=head2 $runner->repeat(SUBNAME[, ARGS])
 
-Alias for done(SUBNAME, 0).
+Alias for done(SUBNAME, ARGS, 0).
 
 =head2 $runner->repeat_all()
 
-Alias for repeat(qr/.*/, 1).
+Repeat all subroutines.
 
-=head2 $runner->branch_done(SUBNAME, VALUE)
+=head2 $runner->done_branch(SUBNAME, ARGS, VALUE)
 
 Just like done(), except that will set SUBNAME *and all its dependants*.
-Example: if a depends on b and b depends on c, then doing branch_done(c, 1) will
-also set a & b as done.
+Example: if a depends on b and b depends on c, then doing branch_done('c',
+undef, 1) will also set a & b as done.
 
-SUBNAME must be a string and not regex.
+=head2 $runner->skip_branch(SUBNAME[, ARGS])
 
-=head2 $runner->jump($subname)
+Alias for done_branch(SUBNAME, ARGS, 1).
 
-Jump to another subname. Can be called in pre_sub() or inside subroutine or
+=head2 $runner->repeat_branch(SUBNAME[, ARGS])
+
+Alias for done_branch(SUBNAME, ARGS, 0).
+
+=head2 $runner->jump($subname, $args)
+
+Jump to another item. Can be called in pre_sub() or inside subroutine or
 post_sub().
 
 =head2 $runner->stash(NAME[, VALUE]) => OLDVAL
