@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.16';
+  $Sub::Spec::Runner::VERSION = '0.17';
 }
 # ABSTRACT: Run subroutines
 
@@ -224,6 +224,13 @@ sub add {
     push @{ $self->_queue }, $item;
     $self->_queue_idx->{$key} = $item;
     $log->trace("<- add()");
+}
+
+
+sub empty {
+    my ($self) = @_;
+    $self->_queue([]);
+    $self->_queue_idx({});
 }
 
 
@@ -844,7 +851,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.16';
+  $Sub::Spec::Clause::deps::VERSION = '0.17';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -876,7 +883,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.16
+version 0.17
 
 =head1 SYNOPSIS
 
@@ -1062,6 +1069,10 @@ clause will also be add()-ed automatically, recursively.
 If the same subroutine is added twice, then it will only be queued once, unless
 allow_add_same_sub attribute is true, in which case duplicate subroutine name
 can be added as long as the arguments are different.
+
+=head2 $runner->empty()
+
+Empty all items in the queue. This is the opposite of what add() does.
 
 =head2 $runner->order_by_dependencies()
 

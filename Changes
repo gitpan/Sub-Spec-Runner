@@ -1,5 +1,12 @@
 Revision history for Sub::Spec::Runner
 
+0.17     2011-05-31
+
+         [NEW FEATURES]
+
+         * New method: empty().
+
+
 0.16     2011-05-31
 
          [INCOMPATIBLE CHANGES]

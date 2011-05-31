@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.16
+    version 0.17
 
 SYNOPSIS
     In YourModule.pm:
@@ -181,6 +181,9 @@ METHODS
     If the same subroutine is added twice, then it will only be queued once,
     unless allow_add_same_sub attribute is true, in which case duplicate
     subroutine name can be added as long as the arguments are different.
+
+  $runner->empty()
+    Empty all items in the queue. This is the opposite of what add() does.
 
   $runner->order_by_dependencies()
     Reorder set of subroutines by dependencies. Normally need not be called

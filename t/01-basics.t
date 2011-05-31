@@ -168,6 +168,15 @@ our %SPEC;
 $SPEC{x} = {};
 sub x {}
 
+my $r = Sub::Spec::Runner->new;
+$r->load_modules(0);
+$r->add('Foo::e');
+is(scalar(@{$r->_queue}), 1, "add() adds one item to _queue");
+is(scalar(keys %{$r->_queue_idx}), 1, "add() adds one item to _queue_idx");
+$r->empty();
+is(scalar(@{$r->_queue}), 0, "empty() empties _queue");
+is(scalar(keys %{$r->_queue_idx}), 0, "empty() empties _queue_idx");
+
 test_run(
     name          => 'normalize subname (add(x) becomes add(main::x))',
     subs          => ['x'],
