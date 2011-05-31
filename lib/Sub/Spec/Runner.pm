@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.15';
+  $Sub::Spec::Runner::VERSION = '0.16';
 }
 # ABSTRACT: Run subroutines
 
@@ -232,7 +232,7 @@ sub order_by_dependencies {
     require Algorithm::Dependency::Ordered;
     require Algorithm::Dependency::Source::HoA;
 
-    my ($self) = @_;
+    my ($self, $reverse) = @_;
     my %deps;
     for my $item (@{ $self->_queue }) {
         $deps{$item->{key}} //= [];
@@ -267,9 +267,8 @@ sub order_by_dependencies {
         return 0;
     }
 
-    if ($self->undo) {
-        $log->trace("Reversing order of subroutines because ".
-                        "we are running in undo mode");
+    if ($reverse) {
+        $log->trace("Reversing order of subroutines ...");
         $keys = [reverse @$keys];
     }
 
@@ -337,8 +336,9 @@ sub run {
     }
 
     if ($self->order_before_run) {
+        my $reverse = 0+$self->order_before_run < 0;
         return [412, "Cannot resolve dependencies, please check for circulars"]
-            unless $self->order_by_dependencies;
+            unless $self->order_by_dependencies($reverse);
     }
 
     my $hook_res;
@@ -844,7 +844,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.15';
+  $Sub::Spec::Clause::deps::VERSION = '0.16';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -876,7 +876,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.15
+version 0.16
 
 =head1 SYNOPSIS
 
@@ -1010,6 +1010,8 @@ reorder the added subroutines according to dependency tree (the 'sub_run'
 dependency clause). You can turn off this behavior by setting this attribute to
 false.
 
+If this attribute is a true but negative value, then the order will be reversed.
+
 =head2 undo => BOOL (default undef)
 
 If set to 0 or 1, then these things will happen: 1) Prior to running, all added
@@ -1018,11 +1020,6 @@ subroutines will be checked and must have 'undo' or 'reverse' feature, or are
 features). 2) '-undo_action' and '-undo_data' special argument will be given
 with value 0/1 to each sub supporting undo (or '-reverse' 0/1 for subroutines
 supporting reverse). No special argument will be given for pure subroutines.
-
-Additionally, if 'undo' is set to 1, then order_by_dependencies() will reverse
-the order of run. This will only be done if 'order_before_run' attribute is set
-to true. Otherwise, you might have to do the reversing of order by yourself, if
-so desired.
 
 In summary: setting to 0 means run normally, but instruct subroutines to store
 undo information to enable undo in the future. Setting to 1 means undo. Setting

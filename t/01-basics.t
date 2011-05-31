@@ -504,7 +504,6 @@ test_run(
     status        => 200,
     output_re     => qr/^EDCBAED$/,
 );
-goto DONE_TESTING;
 
 test_run(
     name          => 'result()',
@@ -602,6 +601,7 @@ test_run(
 test_run(
     name          => 'undo: 1',
     runner_args   => {undo=>1,
+                      order_before_run=>-1,
                       _post_sub => sub {
                           my ($self, $subname) = @_;
                           if ($subname eq 'Foo::rev1') {

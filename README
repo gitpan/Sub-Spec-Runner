@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.15
+    version 0.16
 
 SYNOPSIS
     In YourModule.pm:
@@ -129,6 +129,9 @@ ATTRIBUTES
     'sub_run' dependency clause). You can turn off this behavior by setting
     this attribute to false.
 
+    If this attribute is a true but negative value, then the order will be
+    reversed.
+
   undo => BOOL (default undef)
     If set to 0 or 1, then these things will happen: 1) Prior to running,
     all added subroutines will be checked and must have 'undo' or 'reverse'
@@ -137,11 +140,6 @@ ATTRIBUTES
     argument will be given with value 0/1 to each sub supporting undo (or
     '-reverse' 0/1 for subroutines supporting reverse). No special argument
     will be given for pure subroutines.
-
-    Additionally, if 'undo' is set to 1, then order_by_dependencies() will
-    reverse the order of run. This will only be done if 'order_before_run'
-    attribute is set to true. Otherwise, you might have to do the reversing
-    of order by yourself, if so desired.
 
     In summary: setting to 0 means run normally, but instruct subroutines to
     store undo information to enable undo in the future. Setting to 1 means

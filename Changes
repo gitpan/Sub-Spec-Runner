@@ -1,5 +1,14 @@
 Revision history for Sub::Spec::Runner
 
+0.16     2011-05-31
+
+         [INCOMPATIBLE CHANGES]
+
+         * Setting 'undo' attribute no longer automatically reverse order of
+           run. To reverse order, set 'order_before_run' to a true but negative
+           value.
+
+
 0.15     2011-05-26
 
          This release introduces a new feature: under a new flag attribute
