@@ -209,6 +209,11 @@ test_run(
     output_re     => qr/^EDCBA$/,
     test_after_run => sub {
         my ($runner) = @_;
+
+        is($runner->_i, 5, "_i");
+        is_deeply($runner->last_res, [200, "OK", "apple"], "last_res()")
+            or diag explain $runner->last_res;
+
         my $items = [map {$_->{subname}}
                          @{ $runner->_find_items_and_dependants('Foo::c') }];
         is_deeply($items,
@@ -315,12 +320,20 @@ test_run(
 test_run(
     name          => 'stop_on_sub_errors on',
     subs          => ['Foo::i'],
-    status        => 450,
+    status        => 500,
     num_runs      => 1, num_success_runs => 0, num_failed_runs  => 1,
     num_subs      => 2, num_success_subs => 0, num_failed_subs  => 1,
     num_run_subs  => 1, num_skipped_subs => 1,
     output_re     => qr/J/,
 );
+test_run(
+    name          => 'run option: use_last_res',
+    subs          => ['Foo::i'],
+    run_opts      => {use_last_res=>1},
+    status        => 450,
+    #output_re     => qr/J/,
+);
+goto DONE_TESTING;
 test_run(
     name          => 'stop_on_sub_errors off',
     subs          => ['Foo::i'],
@@ -680,15 +693,20 @@ sub test_run {
 
         my $res;
         if ($args{status}) {
+            my %run_opts;
+            if ($args{run_opts}) {
+                $run_opts{$_} = $args{run_opts}{$_}
+                    for keys %{$args{run_opts}};
+            }
             if (defined($args{output_re})) {
                 my ($stdout, $stderr) = capture {
-                    $res = $runner->run();
+                    $res = $runner->run(%run_opts);
                 };
                 #diag "stderr during run: $stderr" if $stderr;
                 like($stdout // "", $args{output_re}, "output_re")
                     or diag("output is $stdout");
             } else {
-                $res = $runner->run();
+                $res = $runner->run(%run_opts);
             }
 
             if ($args{status}) {

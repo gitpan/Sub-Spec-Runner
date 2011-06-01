@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.17
+    version 0.18
 
 SYNOPSIS
     In YourModule.pm:
@@ -156,6 +156,10 @@ ATTRIBUTES
     value 0/1 to each sub supporting dry run. No special argument will be
     given for pure subroutines.
 
+  last_res => RESULT
+    This attribute will be set by run() to be the result of each item after
+    running each item.
+
 METHODS
   $runner->get_spec($subname) => SPEC
     Get spec for sub named $subname. Will be called by add(). Can be
@@ -202,7 +206,7 @@ METHODS
     Return the items in queue already run. Never-run subroutines can belong
     to this list too if skip()-ed.
 
-  $runner->run() => [STATUSCODE, ERRMSG, RESULT]
+  $runner->run(%opts) => [STATUSCODE, ERRMSG, RESULT]
     Run (call) the queue of subroutines previously added by add().
 
     First it will check 'undo' attribute. If defined, then all added
@@ -265,6 +269,13 @@ METHODS
     After that, run() will return the summary in RESULT (number of
     subroutines run, skipped, successful, etc). It will return status 200 if
     there are at least one subroutine returning success, or 500 otherwise.
+
+    Options for run(), %opts:
+
+    *   use_last_res => BOOL
+
+        Default is false. If set to true, then instead of returning
+        statistics/summary result, run() will return the last item's result.
 
   $runner->format_subname($subname) => STR
     Can be used to format info log message: "Running XXX ..." when about to

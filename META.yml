@@ -27,4 +27,4 @@ requires:
 resources:
   homepage: http://search.cpan.org/dist/Sub-Spec-Runner/
   repository: http://github.com/sharyanto/perl-Sub-Spec-Runner
-version: 0.17
+version: 0.18

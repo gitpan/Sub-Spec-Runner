@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.17';
+  $Sub::Spec::Runner::VERSION = '0.18';
 }
 # ABSTRACT: Run subroutines
 
@@ -73,6 +73,9 @@ has undo_data_dir => (is => 'rw', default => sub {
 
 
 has dry_run => (is => 'rw', default=>sub{0});
+
+
+has last_res => (is => 'rw');
 
 
 
@@ -309,8 +312,8 @@ sub _log_running_sub {
 
 
 sub run {
-    my ($self) = @_;
-    $log->tracef("-> Runner's run()");
+    my ($self, %opts) = @_;
+    $log->tracef("-> Runner's run(%s)", \%opts);
 
     return [412, "No items to run, please add() some first"]
         unless @{ $self->_queue };
@@ -363,7 +366,6 @@ sub run {
     my %failed_items;
     my $res;
 
-    my $use_last_res_status;
   RUN:
     while (1) {
         $self->{_i} = -1;
@@ -386,12 +388,10 @@ sub run {
             eval { $hook_res = $self->pre_sub($subname, $args) };
             if ($@) {
                 $res = [500, "pre_sub() died: $@"];
-                $use_last_res_status++;
                 last RUN;
             }
             unless ($hook_res) {
                 $res = [500, "pre_sub() didn't return true"];
-                $use_last_res_status++;
                 last RUN;
             }
             next if $item->{done}; # pre_sub might skip this sub
@@ -402,10 +402,10 @@ sub run {
             }
 
             $orig_i = $self->{_i};
-            $res = $self->_run_item($item);
-            if ($spec->{result_naked}) { $res = [200, "OK (naked)", $res] }
-            $item->{res} = $res;
-            if ($self->success_res($res)) {
+            my $item_res = $self->_run_item($item);
+            $self->last_res($item_res);
+            $item->{res} = $item_res;
+            if ($self->success_res($item_res)) {
                 $num_success_runs++;
                 $success_subs{$subname}++;
                 $success_items{$self->{_i}}++;
@@ -418,7 +418,6 @@ sub run {
                 delete ($success_subs{$subname});
                 delete ($success_items{$self->{_i}});
                 if ($self->stop_on_sub_errors) {
-                    $use_last_res_status++;
                     last RUN;
                 }
             }
@@ -433,27 +432,24 @@ sub run {
             eval { $hook_res = $self->post_sub($subname, $args) };
             if ($@) {
                 $res = [500, "post_sub() died: $@"];
-                $use_last_res_status++;
                 last RUN;
             }
             unless ($hook_res) {
                 $res = [500, "post_sub() didn't return true"];
-                $use_last_res_status++;
                 last RUN;
             }
             $jumped = $orig_i != $self->{_i};
         }
         last unless $some_not_done;
-    }
+    } # RUN:
 
-    eval { $hook_res = $self->post_run };
-    if ($@) {
-        $res = [500, "post_run() died: $@"];
-        $use_last_res_status = 1;
-    }
-    unless ($hook_res) {
-        $res = [500, "post_run() didn't return true"];
-        $use_last_res_status = 1;
+    if (!$res) {
+        eval { $hook_res = $self->post_run };
+        if ($@) {
+            $res = [500, "post_run() died: $@"];
+        } elsif (!$hook_res) {
+            $res = [500, "post_run() didn't return true"];
+        }
     }
 
     my $num_items         = scalar(@{$self->_queue});
@@ -462,9 +458,7 @@ sub run {
     my $num_failed_subs   = scalar(keys %failed_subs  );
     my $num_success_items = scalar(keys %success_items);
     my $num_failed_items  = scalar(keys %failed_items );
-    unless ($use_last_res_status) {
-        $res = [];
-    }
+
     $res->[2] = {
         num_success_runs   => $num_success_runs,
         num_failed_runs    => $num_failed_runs,
@@ -482,7 +476,8 @@ sub run {
         num_run_items      => $num_success_items+$num_failed_items,
         num_skipped_items  => $num_items-($num_success_items+$num_failed_items),
     };
-    unless ($use_last_res_status) {
+
+    if (!$res->[0]) {
         if ($num_success_items + $num_failed_items == 0) {
             $res->[0] = 200;
             $res->[1] = "All skipped";
@@ -499,6 +494,13 @@ sub run {
             $res->[1] = "All failed";
         }
     }
+
+    if ($opts{use_last_res} && $self->last_res) {
+        $log->tracef("Summary result not used because use_last_res option ".
+                         "is true. Displaying it here: %s", $res);
+        $res = $self->last_res;
+    }
+
     $log->tracef("<- Runner's run(), res=%s", $res);
     $res;
 }
@@ -553,6 +555,7 @@ sub _run_item {
         $all_args{-runner} = $self;
 
         $res = $fref->(%all_args);
+        $res = [200, "OK (naked)", $res] if $spec->{result_naked};
         $log->tracef("<- %s(), res=%s", $subname, $res);
 
         if ($res->[0] != 304) {
@@ -568,7 +571,7 @@ sub _run_item {
         }
     };
     $res = [500, "sub died: $@"] if $@;
-    $log->tracef("<- _run_sub(%s), res=%s", $subname, $res);
+    $log->tracef("<- _run_item(%s), res=%s", $subname, $res);
     $res;
 }
 
@@ -851,7 +854,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.17';
+  $Sub::Spec::Clause::deps::VERSION = '0.18';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -883,7 +886,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.17
+version 0.18
 
 =head1 SYNOPSIS
 
@@ -1044,6 +1047,11 @@ L<Sub::Spec::Clause::features> for more details on specifying features). 2)
 '-dry_run' special argument will be given with value 0/1 to each sub supporting
 dry run. No special argument will be given for pure subroutines.
 
+=head2 last_res => RESULT
+
+This attribute will be set by run() to be the result of each item after running
+each item.
+
 =head1 METHODS
 
 =head2 $runner->get_spec($subname) => SPEC
@@ -1094,7 +1102,7 @@ can belong to this list again if repeat()-ed.
 Return the items in queue already run. Never-run subroutines can belong to this
 list too if skip()-ed.
 
-=head2 $runner->run() => [STATUSCODE, ERRMSG, RESULT]
+=head2 $runner->run(%opts) => [STATUSCODE, ERRMSG, RESULT]
 
 Run (call) the queue of subroutines previously added by add().
 
@@ -1153,6 +1161,17 @@ which must return true. Otherwise run() will immediately exit with 500 status.
 After that, run() will return the summary in RESULT (number of subroutines run,
 skipped, successful, etc). It will return status 200 if there are at least one
 subroutine returning success, or 500 otherwise.
+
+Options for run(), %opts:
+
+=over 4
+
+=item * use_last_res => BOOL
+
+Default is false. If set to true, then instead of returning statistics/summary
+result, run() will return the last item's result.
+
+=back
 
 =head2 $runner->format_subname($subname) => STR
 

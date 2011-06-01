@@ -1,5 +1,20 @@
 Revision history for Sub::Spec::Runner
 
+0.18     2011-06-01
+
+         [INCOMPATIBLE CHANGES]
+
+         * run() now always returns a summary status (e.g. 500 if all items
+           failed, 200 if some succeeded, etc) instead of item's result. See run
+           option 'use_last_res' to return last item's result instead.
+
+         [NEW FEATURES]
+
+         * run() now accepts options. Currently known option: use_last_res.
+
+         * last_res() for easier access to last item's result.
+
+
 0.17     2011-05-31
 
          [NEW FEATURES]
