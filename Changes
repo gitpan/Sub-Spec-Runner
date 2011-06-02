@@ -1,12 +1,24 @@
 Revision history for Sub::Spec::Runner
 
+0.19     2011-06-02
+
+         [INCOMPATIBLE CHANGES]
+
+         * {get,save,remove}_undo_data() becomes
+           {get,save,remove}_item_undo_data().
+
+         [NEW FEATURES]
+
+         * Add methods: {get,remove}_sub_undo_data().
+
+
 0.18     2011-06-01
 
          [INCOMPATIBLE CHANGES]
 
          * run() now always returns a summary status (e.g. 500 if all items
-           failed, 200 if some succeeded, etc) instead of item's result. See run
-           option 'use_last_res' to return last item's result instead.
+           failed, 200 if some succeeded, etc) instead of last item's result.
+           See run option 'use_last_res' to return last item's result instead.
 
          [NEW FEATURES]
 

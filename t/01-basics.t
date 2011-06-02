@@ -6,6 +6,7 @@ use warnings;
 use Log::Any '$log';
 use Test::More 0.96;
 
+use Array::Functions::Undoable;
 use Capture::Tiny qw(capture);
 use File::chdir;
 use File::Temp qw(tempdir);
@@ -333,7 +334,6 @@ test_run(
     status        => 450,
     #output_re     => qr/J/,
 );
-goto DONE_TESTING;
 test_run(
     name          => 'stop_on_sub_errors off',
     subs          => ['Foo::i'],
@@ -645,6 +645,62 @@ test_run(
         ok(!(-f "$tempdir/Foo.undo1.yaml"), "undo data file removed");
     },
 );
+
+# test multiple args for one sub, get_sub_undo_data()
+my $ary = [qw/a b/];
+test_run(
+    name          => 'undo file multiple args (run 1)',
+    subs          => ['Array::Functions::Undoable::afu'],
+    sub_args      => [{op=>"pop", ary=>$ary}],
+    runner_args   => {undo=>0},
+    run_opts      => {use_last_res=>1},
+    status        => 200,
+    test_after_run=> sub {
+        ok((-f "$tempdir/Array.Functions.Undoable.afu.yaml"),
+           "undo data file created");
+        is_deeply($ary, [qw/a/], "ary");
+    },
+);
+test_run(
+    name          => 'undo file multiple args (run 2)',
+    subs          => ['Array::Functions::Undoable::afu'],
+    sub_args      => [{op=>"pop", ary=>$ary}],
+    runner_args   => {undo=>0},
+    run_opts      => {use_last_res=>1},
+    status        => 200,
+    test_after_run=> sub {
+        is_deeply($ary, [qw//], "ary");
+    },
+);
+my $recs;
+test_run(
+    name          => 'undo file multiple args (run 3)',
+    subs          => ['Array::Functions::Undoable::afu'],
+    sub_args      => [{op=>"pop", ary=>$ary}],
+    runner_args   => {undo=>0},
+    run_opts      => {use_last_res=>1},
+    status        => 304,
+    test_after_run=> sub {
+        my ($runner) = @_;
+        is_deeply($ary, [qw//], "ary");
+        $recs = $runner->get_sub_undo_data("Array::Functions::Undoable::afu");
+        is(scalar(@$recs), 2, "recs has 2 records");
+        $runner->remove_sub_undo_data("Array::Functions::Undoable::afu");
+        ok(!(-f "$tempdir/Array.Functions.Undoable.afu.yaml"),
+           "undo data file removed by remove_sub_undo_data()");
+    },
+);
+# manual undo
+my $undo_data = [];
+for my $rec (reverse @$recs) {
+    for my $u (@{$rec->{undo_datas}}) {
+        push @$undo_data, @$u;
+    }
+}
+#use Data::Dump; dd $undo_data;
+Array::Functions::Undoable::afu(
+    op=>'pop', ary=>$ary, -undo_action => 'undo', -undo_data=>$undo_data);
+is_deeply($ary, [qw/a b/], "recs can be used to undo");
 
 DONE_TESTING:
 

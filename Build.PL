@@ -17,13 +17,14 @@ my %module_build_args = (
     'Steven Haryanto <stevenharyanto@gmail.com>'
   ],
   'dist_name' => 'Sub-Spec-Runner',
-  'dist_version' => '0.18',
+  'dist_version' => '0.19',
   'license' => 'perl',
   'module_name' => 'Sub::Spec::Runner',
   'recommends' => {},
   'recursive_test_files' => 1,
   'requires' => {
     'Algorithm::Dependency' => '0',
+    'Array::Functions::Undoable' => '0',
     'Capture::Tiny' => '0',
     'File::chdir' => '0',
     'JSON' => '0',

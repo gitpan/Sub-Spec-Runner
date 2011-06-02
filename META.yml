@@ -15,6 +15,7 @@ meta-spec:
 name: Sub-Spec-Runner
 requires:
   Algorithm::Dependency: 0
+  Array::Functions::Undoable: 0
   Capture::Tiny: 0
   File::chdir: 0
   JSON: 0
@@ -27,4 +28,4 @@ requires:
 resources:
   homepage: http://search.cpan.org/dist/Sub-Spec-Runner/
   repository: http://github.com/sharyanto/perl-Sub-Spec-Runner
-version: 0.18
+version: 0.19

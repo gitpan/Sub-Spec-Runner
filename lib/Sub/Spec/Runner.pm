@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.18';
+  $Sub::Spec::Runner::VERSION = '0.19';
 }
 # ABSTRACT: Run subroutines
 
@@ -538,7 +538,7 @@ sub _run_item {
             } elsif ($spec->{features}{undo}) {
                 $all_args{-undo_action} = $self->undo ? 'undo':'do';
                 if ($self->undo) {
-                    my $undo_data = $self->get_undo_data(
+                    my $undo_data = $self->get_item_undo_data(
                         $subname, $args_for_undo);
                     if (!$undo_data) {
                         $res = [304, "skipped: nothing to undo"];
@@ -562,10 +562,10 @@ sub _run_item {
             if (defined($self->undo) && !$self->undo
                     && $res->[3] && ref($res->[3]) eq 'HASH' &&
                         $res->[3]{undo_data}) {
-                $self->save_undo_data(
+                $self->save_item_undo_data(
                     $subname, $args_for_undo, $res->[3]{undo_data});
             } elsif ($self->undo && $res->[0] == 200) {
-                $self->remove_undo_data(
+                $self->remove_item_undo_data(
                     $subname, $args_for_undo);
             }
         }
@@ -598,8 +598,12 @@ sub pre_sub {
     !$self->_pre_sub || $self->_pre_sub->($self, @_);
 }
 
-sub _get_save_undo_data {
+# which: one of 'get-item', 'save-item', 'remove-item', 'get-sub', or
+# 'remove-sub'.
+sub _get_save_remove_undo_data {
     my ($self, $which, $subname, $args, $undo_data) = @_;
+    die "BUG: invalid which" unless
+        $which =~ /^(get-item|get-sub|save-item|remove-item|remove-sub)$/;
     my $args_d = Dump($args);
     my $dir = $self->undo_data_dir;
     $subname =~ s/::/./g;
@@ -607,20 +611,20 @@ sub _get_save_undo_data {
 
     # XXX locking
 
-    if ($which eq 'get') {
+    if ($which =~ /get/) {
         return unless -f $path;
     }
 
     my $recs;
     my $i = 0;
-    my $match_i;
+    my $match_i; # to match item
     if (-f $path) {
         $recs = LoadFile($path);
-        die "BUG: $path: not an array" unless ref($recs) eq 'ARRAY';
+        die "$path: data not an array" unless ref($recs) eq 'ARRAY';
         my $i = 0;
         for my $i (0..@$recs-1) {
             my $rec = $recs->[$i];
-            die "BUG: $path: record #$i: not a hash"
+            die "$path: record #$i: not a hash"
                 unless ref($rec) eq 'HASH';
             if (!defined($match_i) && Dump($rec->{args}) eq $args_d) {
                 $match_i = $i;
@@ -630,17 +634,21 @@ sub _get_save_undo_data {
     }
     $recs //= [];
 
-    if ($which eq 'get') {
+    if ($which eq 'get-sub') {
+        return $recs;
+    } elsif ($which eq 'get-item') {
         return unless defined($match_i);
         return [ map { @$_ } reverse @{ $recs->[$match_i]{undo_datas} } ];
-    } elsif ($which eq 'save') {
+    } elsif ($which eq 'save-item') {
         if (!defined($match_i)) {
             push @$recs, {args=>$args, undo_datas=>[]};
             $match_i = @$recs-1;
         }
         push @{$recs->[$match_i]{undo_datas}}, $undo_data;
         DumpFile($path, $recs);
-    } elsif ($which eq 'remove') {
+    } elsif ($which eq 'remove-sub') {
+        unlink $path;
+    } elsif ($which eq 'remove-item') {
         return unless defined($match_i);
         splice(@$recs, $match_i, 1);
         if (@$recs) {
@@ -652,21 +660,33 @@ sub _get_save_undo_data {
 }
 
 
-sub get_undo_data {
+sub get_item_undo_data {
     my ($self, $subname, $args) = @_;
-    $self->_get_save_undo_data('get', $subname, $args);
+    $self->_get_save_remove_undo_data('get-item', $subname, $args);
 }
 
 
-sub save_undo_data {
+sub save_item_undo_data {
     my ($self, $subname, $args, $undo_data) = @_;
-    $self->_get_save_undo_data('save', $subname, $args, $undo_data);
+    $self->_get_save_remove_undo_data('save-item', $subname, $args, $undo_data);
 }
 
 
-sub remove_undo_data {
+sub get_sub_undo_data {
+    my ($self, $subname, $args, $undo_data) = @_;
+    $self->_get_save_remove_undo_data('get-sub', $subname);
+}
+
+
+sub remove_item_undo_data {
     my ($self, $subname, $args) = @_;
-    $self->_get_save_undo_data('remove', $subname, $args);
+    $self->_get_save_remove_undo_data('remove-item', $subname, $args);
+}
+
+
+sub remove_sub_undo_data {
+    my ($self, $subname) = @_;
+    $self->_get_save_remove_undo_data('remove-sub', $subname);
 }
 
 
@@ -854,7 +874,7 @@ sub stash {
 
 package Sub::Spec::Clause::deps;
 BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.18';
+  $Sub::Spec::Clause::deps::VERSION = '0.19';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -886,7 +906,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.18
+version 0.19
 
 =head1 SYNOPSIS
 
@@ -1037,7 +1057,7 @@ to undef (the default) means disregard undo stuffs.
 
 =head2 undo_data_dir => STRING (default ~/.subspec/.undo)
 
-Location to put undo data. See save_undo_data() for more details.
+Location to put undo data. See save_item_undo_data() for more details.
 
 =head2 dry_run => BOOL (default 0)
 
@@ -1127,8 +1147,8 @@ add(), with one extra special argument, '-runner' which is the runner object.
 
 Before running a subroutine: pre_sub() will be called. It must return true, or
 run() will immediately return with 500 error. If 'undo' attribute is set to
-true, get_undo_data() will be called to get undo data (see get_undo_data() for
-more details on customizing storage of undo data).
+true, get_item_undo_data() will be called to get undo data (see
+get_item_undo_data() for more details on customizing storage of undo data).
 
 The subroutine being run can see the status/result of other subroutines by
 calling $runner->done($subname), $runner->result($subname). It can share data by
@@ -1142,10 +1162,10 @@ subroutine. Exception from subroutine will be trapped by eval() and upon
 exception return value of subroutine is assumed to be 500.
 
 If subroutine runs successfully: if 'undo' attribute is defined and false
-(meaning normal run but save undo information), save_undo_data() will be called
-to save undo information (see save_undo_data() for more details on customizing
-storage of undo data). If 'undo' attribute is true, remove_undo_data() will be
-called to remove undo information.
+(meaning normal run but save undo information), save_item_undo_data() will be
+called to save undo information (see save_item_undo_data() for more details on
+customizing storage of undo data). If 'undo' attribute is true,
+remove_item_undo_data() will be called to remove undo information.
 
 After that, post_sub() will be called. It must return true, or run() will
 immediately return with 500 error.
@@ -1192,23 +1212,41 @@ See run() for more details. Can be overridden by subclass.
 
 See run() for more details. Can be overridden by subclass.
 
-=head2 $runner->get_undo_data($subname, $args) => $undo_data
+=head2 $runner->get_item_undo_data($subname, $args) => $undo_data
 
-Get undo data. The default implementation loads from file (see save_undo_data()
-for more details). You can override this method or just set 'undo_data_dir' to
-the desired location.
+Get item's undo data. If 'undo' attribute is set to true, this method will be
+called by run() before running each item.
 
-=head2 $runner->save_undo_data($subname, $args, $undo_data)
+=head2 $runner->save_item_undo_data($subname, $args, $undo_data)
 
-Save undo data. The default implementation saves undo data in YAML file under
-directory specified by 'undo_data_dir', one file per subname, the file being
-named <subname>.yaml ("::" replaced with by "." because it is not valid in some
-filesystems). You can override this method or just set 'undo_data_dir' to the
-desired location.
+Save item's undo data. If 'undo' attribute is defined, this method will be
+called by run() after each item is called, to save the resulting undo data.
 
-=head2 $runner->remove_undo_data($subname, $args)
+The default implementation saves undo data in YAML files under directory
+specified by 'undo_data_dir', one file per subname, the file being named
+<subname>.yaml ("::" replaced with by "." because it is not valid in some
+filesystems). The data being stored is an array of hashes ("records"). Each
+record contains: {args => ..., undo_datas => [step, ...]}. Because the
+L<Sub::Spec> specification allows different undo data for different arguments,
+the YAML file store undo data for each different argument in each record.
 
-Remove undo data.
+To store undo data in other location, you can set the 'undo_data_dir' or
+alternatively override the *_undo_data() methods and provide your own
+implementation.
+
+=head2 $runner->get_sub_undo_data($subname) => $records
+
+Get all undo data records for a certain subname. See save_item_undo_data() for
+more details.
+
+=head2 $runner->remove_item_undo_data($subname, $args)
+
+Remove an item's undo data. If 'undo' attribute is set to true, will be called
+by run() after a successful undo.
+
+=head2 $runner->remove_sub_undo_data($subname, $args)
+
+Remove a sub's undo data.
 
 =head2 $runner->post_sub($subname, $args) => BOOL
 
