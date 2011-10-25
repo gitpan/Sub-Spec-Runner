@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
-BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.19';
+{
+  $Sub::Spec::Runner::VERSION = '0.20';
 }
 # ABSTRACT: Run subroutines
 
@@ -9,9 +9,9 @@ use strict;
 use warnings;
 use Log::Any '$log';
 
+use Data::Sah::Util;
 use JSON;
 use Moo;
-use Sub::Spec::Utils; # temp, for _parse_schema
 use YAML::Syck;
 
 my $json = JSON->new->allow_nonref;
@@ -80,7 +80,7 @@ has last_res => (is => 'rw');
 
 
 sub __parse_schema {
-    Sub::Spec::Utils::_parse_schema(@_);
+    Data::Sah::Util::_parse_schema(@_);
 }
 
 # flatten deps clauses by flattening 'all' clauses, effectively change this
@@ -242,7 +242,10 @@ sub order_by_dependencies {
     require Algorithm::Dependency::Ordered;
     require Algorithm::Dependency::Source::HoA;
 
-    my ($self, $reverse) = @_;
+    my ($self) = @_;
+
+    my $reverse = 0+$self->order_before_run < 0;
+
     my %deps;
     for my $item (@{ $self->_queue }) {
         $deps{$item->{key}} //= [];
@@ -346,9 +349,8 @@ sub run {
     }
 
     if ($self->order_before_run) {
-        my $reverse = 0+$self->order_before_run < 0;
         return [412, "Cannot resolve dependencies, please check for circulars"]
-            unless $self->order_by_dependencies($reverse);
+            unless $self->order_by_dependencies;
     }
 
     my $hook_res;
@@ -873,8 +875,8 @@ sub stash {
 }
 
 package Sub::Spec::Clause::deps;
-BEGIN {
-  $Sub::Spec::Clause::deps::VERSION = '0.19';
+{
+  $Sub::Spec::Clause::deps::VERSION = '0.20';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -906,7 +908,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.19
+version 0.20
 
 =head1 SYNOPSIS
 

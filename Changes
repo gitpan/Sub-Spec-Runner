@@ -1,5 +1,12 @@
 Revision history for Sub::Spec::Runner
 
+0.20     2011-10-22
+
+         No functional changes. Updated because _parse_schema() is moved from
+         Sub::Spec::Utils to Data::Sah::Util and 'deps' clause handling is moved
+         to Sub::Spec::DepChecker.
+
+
 0.19     2011-06-02
 
          [INCOMPATIBLE CHANGES]
