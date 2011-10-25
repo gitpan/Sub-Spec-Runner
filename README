@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.20
+    version 0.21
 
 SYNOPSIS
     In YourModule.pm:
@@ -135,11 +135,11 @@ ATTRIBUTES
   undo => BOOL (default undef)
     If set to 0 or 1, then these things will happen: 1) Prior to running,
     all added subroutines will be checked and must have 'undo' or 'reverse'
-    feature, or are 'pure' (see Sub::Spec::Clause::features for more details
-    on specifying features). 2) '-undo_action' and '-undo_data' special
-    argument will be given with value 0/1 to each sub supporting undo (or
-    '-reverse' 0/1 for subroutines supporting reverse). No special argument
-    will be given for pure subroutines.
+    feature, or are 'pure' (see the 'features' clause in Sub::Spec for more
+    details on specifying features). 2) '-undo_action' and '-undo_data'
+    special argument will be given with value 0/1 to each sub supporting
+    undo (or '-reverse' 0/1 for subroutines supporting reverse). No special
+    argument will be given for pure subroutines.
 
     In summary: setting to 0 means run normally, but instruct subroutines to
     store undo information to enable undo in the future. Setting to 1 means
@@ -151,7 +151,7 @@ ATTRIBUTES
   dry_run => BOOL (default 0)
     If set to 0 or 1, then these things will happen: 1) Prior to running,
     all added subroutines will be checked and must have 'dry_run' feature,
-    or are 'pure' (see Sub::Spec::Clause::features for more details on
+    or are 'pure' (see 'features' clause in Sub::Spec for more details on
     specifying features). 2) '-dry_run' special argument will be given with
     value 0/1 to each sub supporting dry run. No special argument will be
     given for pure subroutines.

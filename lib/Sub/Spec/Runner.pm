@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
 {
-  $Sub::Spec::Runner::VERSION = '0.20';
+  $Sub::Spec::Runner::VERSION = '0.21';
 }
 # ABSTRACT: Run subroutines
 
@@ -180,7 +180,7 @@ sub get_spec {
 our $current_runner;
 
 sub add {
-    require Sub::Spec::Clause::deps;
+    require Sub::Spec::DepChecker;
 
     my ($self, $subname, $args) = @_;
     $subname = __normalize_subname($subname);
@@ -213,7 +213,7 @@ sub add {
         $log->tracef("fldeps = %s", $fldeps);
         #$log->tracef("Checking dependencies ...");
         local $current_runner = $self;
-        my $res = Sub::Spec::Clause::deps::check($spec->{deps});
+        my $res = Sub::Spec::DepChecker::check_deps($spec->{deps});
         die "Unmet dependencies for sub $subname: $res\n" if $res;
     }
 
@@ -874,14 +874,14 @@ sub stash {
     $oldval;
 }
 
-package Sub::Spec::Clause::deps;
+package Sub::Spec::DepChecker;
 {
-  $Sub::Spec::Clause::deps::VERSION = '0.20';
+  $Sub::Spec::DepChecker::VERSION = '0.21';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
 
-sub check_run_sub {
+sub checkdep_run_sub {
     my ($cval) = @_;
     my $runner = $Sub::Spec::Runner::current_runner;
     if (!ref($cval)) {
@@ -908,7 +908,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.20
+version 0.21
 
 =head1 SYNOPSIS
 
@@ -1048,7 +1048,7 @@ If this attribute is a true but negative value, then the order will be reversed.
 
 If set to 0 or 1, then these things will happen: 1) Prior to running, all added
 subroutines will be checked and must have 'undo' or 'reverse' feature, or are
-'pure' (see L<Sub::Spec::Clause::features> for more details on specifying
+'pure' (see the 'features' clause in L<Sub::Spec> for more details on specifying
 features). 2) '-undo_action' and '-undo_data' special argument will be given
 with value 0/1 to each sub supporting undo (or '-reverse' 0/1 for subroutines
 supporting reverse). No special argument will be given for pure subroutines.
@@ -1065,7 +1065,7 @@ Location to put undo data. See save_item_undo_data() for more details.
 
 If set to 0 or 1, then these things will happen: 1) Prior to running, all added
 subroutines will be checked and must have 'dry_run' feature, or are 'pure' (see
-L<Sub::Spec::Clause::features> for more details on specifying features). 2)
+'features' clause in L<Sub::Spec> for more details on specifying features). 2)
 '-dry_run' special argument will be given with value 0/1 to each sub supporting
 dry run. No special argument will be given for pure subroutines.
 

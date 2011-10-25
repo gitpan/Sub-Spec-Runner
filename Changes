@@ -1,5 +1,11 @@
 Revision history for Sub::Spec::Runner
 
+0.21     2011-10-22
+
+         No functional changes. Replace old Sub::Spec::Clause::* with
+         Sub::Spec::DepChecker.
+
+
 0.20     2011-10-22
 
          No functional changes. Updated because _parse_schema() is moved from

@@ -23,10 +23,11 @@ requires:
   Log::Any: 0
   Moo: 0
   Sub::Spec: 0.08
+  Sub::Spec::DepChecker: 0
   Test::More: 0.96
   YAML::Syck: 0
   perl: 5.010000
 resources:
   homepage: http://search.cpan.org/dist/Sub-Spec-Runner/
   repository: http://github.com/sharyanto/perl-Sub-Spec-Runner
-version: 0.20
+version: 0.21
