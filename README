@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.21
+    version 0.22
 
 SYNOPSIS
     In YourModule.pm:
@@ -145,7 +145,7 @@ ATTRIBUTES
     store undo information to enable undo in the future. Setting to 1 means
     undo. Setting to undef (the default) means disregard undo stuffs.
 
-  undo_data_dir => STRING (default ~/.subspec/.undo)
+  undo_data_dir => STRING (default ~/.undo)
     Location to put undo data. See save_item_undo_data() for more details.
 
   dry_run => BOOL (default 0)

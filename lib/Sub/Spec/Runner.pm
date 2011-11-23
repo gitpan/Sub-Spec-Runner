@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
-{
-  $Sub::Spec::Runner::VERSION = '0.21';
+BEGIN {
+  $Sub::Spec::Runner::VERSION = '0.22';
 }
 # ABSTRACT: Run subroutines
 
@@ -9,7 +9,7 @@ use strict;
 use warnings;
 use Log::Any '$log';
 
-use Data::Sah::Util;
+use Data::Sah;
 use JSON;
 use Moo;
 use YAML::Syck;
@@ -55,15 +55,17 @@ has allow_add_same_sub => (is => 'rw', default=>sub{0});
 has order_before_run => (is => 'rw', default=>sub{1});
 
 
-has undo => (is => 'rw');
+has undo => (
+    is => 'rw',
+    trigger => sub {
+        my $self = shift;
+        $log->tracef("=> undo(%s)", \@_);
+    },
+);
 
 
 has undo_data_dir => (is => 'rw', default => sub {
     my $dir = $ENV{HOME} or die "Can't set default undo_data_dir, no HOME set";
-    $dir .= "/.subspec";
-    unless (-d $dir) {
-        mkdir $dir, 0700 or die "Can't mkdir $dir: $!";
-    }
     $dir .= "/.undo";
     unless (-d $dir) {
         mkdir $dir, 0700 or die "Can't mkdir $dir: $!";
@@ -80,7 +82,7 @@ has last_res => (is => 'rw');
 
 
 sub __parse_schema {
-    Data::Sah::Util::_parse_schema(@_);
+    Data::Sah::normalize_schema($_[0]);
 }
 
 # flatten deps clauses by flattening 'all' clauses, effectively change this
@@ -605,7 +607,11 @@ sub pre_sub {
 sub _get_save_remove_undo_data {
     my ($self, $which, $subname, $args, $undo_data) = @_;
     die "BUG: invalid which" unless
-        $which =~ /^(get-item|get-sub|save-item|remove-item|remove-sub)$/;
+        $which =~ /^(get-item|get-sub|
+                       #list-subs|    # not yet
+                       #list-items|   # not yet
+                       save-item|
+                       remove-item|remove-sub)$/x;
     my $args_d = Dump($args);
     my $dir = $self->undo_data_dir;
     $subname =~ s/::/./g;
@@ -664,31 +670,43 @@ sub _get_save_remove_undo_data {
 
 sub get_item_undo_data {
     my ($self, $subname, $args) = @_;
-    $self->_get_save_remove_undo_data('get-item', $subname, $args);
+    my $res = $self->_get_save_remove_undo_data('get-item', $subname, $args);
+    $log->tracef("get_item_undo_data(sub=%s, args=%s) -> %s",
+                 $subname, $args, $res);
+    $res;
 }
 
 
 sub save_item_undo_data {
     my ($self, $subname, $args, $undo_data) = @_;
-    $self->_get_save_remove_undo_data('save-item', $subname, $args, $undo_data);
+    my $res = $self->_get_save_remove_undo_data(
+        'save-item', $subname, $args, $undo_data);
+    $log->tracef("save_item_undo_data(sub=%s, args=%s)", $subname, $args);
+    $res;
 }
 
 
 sub get_sub_undo_data {
-    my ($self, $subname, $args, $undo_data) = @_;
-    $self->_get_save_remove_undo_data('get-sub', $subname);
+    my ($self, $subname, $undo_data) = @_;
+    my $res = $self->_get_save_remove_undo_data('get-sub', $subname);
+    $log->tracef("get_sub_undo_data(sub=%s) -> %s", $subname, $res);
+    $res;
 }
 
 
 sub remove_item_undo_data {
     my ($self, $subname, $args) = @_;
-    $self->_get_save_remove_undo_data('remove-item', $subname, $args);
+    my $res = $self->_get_save_remove_undo_data('remove-item', $subname, $args);
+    $log->tracef("remove_item_undo_data(sub=%s, args=%s)", $subname, $args);
+    $res;
 }
 
 
 sub remove_sub_undo_data {
     my ($self, $subname) = @_;
-    $self->_get_save_remove_undo_data('remove-sub', $subname);
+    my $res = $self->_get_save_remove_undo_data('remove-sub', $subname);
+    $log->tracef("remove_sub_undo_data(sub=%s)", $subname);
+    $res;
 }
 
 
@@ -875,8 +893,8 @@ sub stash {
 }
 
 package Sub::Spec::DepChecker;
-{
-  $Sub::Spec::DepChecker::VERSION = '0.21';
+BEGIN {
+  $Sub::Spec::DepChecker::VERSION = '0.22';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -908,7 +926,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.21
+version 0.22
 
 =head1 SYNOPSIS
 
@@ -1057,7 +1075,7 @@ In summary: setting to 0 means run normally, but instruct subroutines to store
 undo information to enable undo in the future. Setting to 1 means undo. Setting
 to undef (the default) means disregard undo stuffs.
 
-=head2 undo_data_dir => STRING (default ~/.subspec/.undo)
+=head2 undo_data_dir => STRING (default ~/.undo)
 
 Location to put undo data. See save_item_undo_data() for more details.
 
