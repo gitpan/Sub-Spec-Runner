@@ -1,6 +1,6 @@
 package Sub::Spec::Runner;
-BEGIN {
-  $Sub::Spec::Runner::VERSION = '0.22';
+{
+  $Sub::Spec::Runner::VERSION = '0.23';
 }
 # ABSTRACT: Run subroutines
 
@@ -893,8 +893,8 @@ sub stash {
 }
 
 package Sub::Spec::DepChecker;
-BEGIN {
-  $Sub::Spec::DepChecker::VERSION = '0.22';
+{
+  $Sub::Spec::DepChecker::VERSION = '0.23';
 }
 # XXX adding run_sub should be done locally, and also modifies the spec schema
 # (when it's already defined). probably use a utility function add_dep_clause().
@@ -926,7 +926,7 @@ Sub::Spec::Runner - Run subroutines
 
 =head1 VERSION
 
-version 0.22
+version 0.23
 
 =head1 SYNOPSIS
 
@@ -969,6 +969,12 @@ Will output:
  a
 
 =head1 DESCRIPTION
+
+B<NOTICE>: This module and the L<Sub::Spec> standard is deprecated as of Jan
+2012. L<Rinci> is the new specification to replace Sub::Spec, it is about 95%
+compatible with Sub::Spec, but corrects a few issues and is more generic.
+C<Perinci::*> is the Perl implementation for Rinci and many of its modules can
+handle existing Sub::Spec sub specs.
 
 This class "runs" a set of subroutines. "Running" a subroutine basically means
 loading the module and calling the subroutine, plus a few other stuffs. See
@@ -1392,7 +1398,7 @@ Steven Haryanto <stevenharyanto@gmail.com>
 
 =head1 COPYRIGHT AND LICENSE
 
-This software is copyright (c) 2011 by Steven Haryanto.
+This software is copyright (c) 2012 by Steven Haryanto.
 
 This is free software; you can redistribute it and/or modify it under
 the same terms as the Perl 5 programming language system itself.

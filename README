@@ -2,7 +2,7 @@ NAME
     Sub::Spec::Runner - Run subroutines
 
 VERSION
-    version 0.22
+    version 0.23
 
 SYNOPSIS
     In YourModule.pm:
@@ -44,6 +44,12 @@ SYNOPSIS
      a
 
 DESCRIPTION
+    NOTICE: This module and the Sub::Spec standard is deprecated as of Jan
+    2012. Rinci is the new specification to replace Sub::Spec, it is about
+    95% compatible with Sub::Spec, but corrects a few issues and is more
+    generic. "Perinci::*" is the Perl implementation for Rinci and many of
+    its modules can handle existing Sub::Spec sub specs.
+
     This class "runs" a set of subroutines. "Running" a subroutine basically
     means loading the module and calling the subroutine, plus a few other
     stuffs. See run() for more details.
@@ -430,7 +436,7 @@ AUTHOR
     Steven Haryanto <stevenharyanto@gmail.com>
 
 COPYRIGHT AND LICENSE
-    This software is copyright (c) 2011 by Steven Haryanto.
+    This software is copyright (c) 2012 by Steven Haryanto.
 
     This is free software; you can redistribute it and/or modify it under
     the same terms as the Perl 5 programming language system itself.
